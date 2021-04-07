@@ -13,22 +13,64 @@ class ClaSnapServer
   private $postVars;
   private $scsid;
   private $sessionData;
+  private $setupMode;
+  // assumes argstring is encrypted and then base64-encoded
+  private function decryptArgument($argstring)
+  {
+      $estr=base64_decode($argstring);
+      $echunks=explode(',',$estr);
+      $rstr='';
+      $ekey=($this->setupMode?$this->setupPubKey:$this->appPubKey);
+      foreach($echunks as $chunk)
+      {
+          $dchunk=base64_decode($chunk);
+          $pchunk='';
+          if(!openssl_public_decrypt($dchunk,$pchunk,$ekey))
+              throw new Exception('I could not decrypt one of the client chunks.');
+          $rstr.=$pchunk;
+      }
+      return $rstr;
+  }
+  // see comments on this function in snapclient.php
+  private function encryptString($pstr,$ekey)
+  {
+      $BLKSIZE=400;
+      $pchunks=str_split($pstr,$BLKSIZE);
+      $echunks=array();
+      foreach($pchunks as $chunk)
+      {
+          $echunk='';
+          if(!openssl_public_encrypt($chunk,$echunk,$ekey))
+              throw new Exception("I could not encrypt a chunk of your string");
+          $echunks[]=base64_encode($echunk);
+      }
+      $estring=implode($echunks,',');
+      return base64_encode($estring);
+  }
   public function __construct()
   {
-     //TODO: move the pub key to a file, and after setup, empty the file such that the remote client can't
+     //TODO: after setup, empty the file such that the remote client can't
      //      do setup again.
+     $this->setupMode=true;
      $this->setupPubKey=file_get_contents(SC_SUP_KEY_FILE);
      if($this->setupPubKey===false)
          throw new Exception('I could not read the setup key file.');
      if(strlen($this->setupPubKey)==0)
      {
          $this->setupPubKey=null;
-         $this->appPubKey=file_get_content(SC_APP_KEY_FILE);
+         $this->appPubKey=openssl_pkey_get_public('file://' . SC_APP_KEY_FILE);
          if($this->appPubKey===false)
              throw new Exception('There are no keys available.  You will need to call a technician to help me.');
+         $this->setupMode=false;
      }
-     else 
+     else
+     {
          $this->appPubKey=null;
+         $this->setupPubKey=openssl_pkey_get_public($this->setupPubKey);
+         if($this->setupPubKey===false)
+             throw new Exception('I could not parse the setup key.');
+         $this->setupMode=true;    
+     }
      $this->currentCommand='NOP';
      $this->scsid=null;
      $this->sessionData=array();
@@ -37,11 +79,13 @@ class ClaSnapServer
   
   public function identifyCommand()
   {
-    $c=strtoupper(trim($this->postVars['command']));   
+    $ec=trim($this->postVars['command']);
+    $pc=$this->decryptArgument($ec);
+    $c=strtoupper(trim($pc));   
     switch($c)
     {
         case 'SUP':
-            echo 'EXECUTE SUP HERE';
+            echo 'COMMAND IS SUP';
             break;
             
         default:

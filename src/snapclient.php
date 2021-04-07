@@ -4,11 +4,14 @@
  * MOST IMPORTANT NOTE: Exception messages must be read in a sultry, female, robot voice.  Thank you.
  */
 
-DEFINE('SC_SETUP_KEY','/home/scott/.ssh/scsetup');
+DEFINE('SC_SETUP_KEY','/home/scott/.ssh/scsetup.pem');
+DEFINE('SC_SETUP_PUB_KEY','/home/scott/.ssh/scsetup.pub');
 
 class ClaSnapClient
 {
-    private $scsetupkey;
+    private $scsetupkey;  // the setup key
+    private $scsetuppub;  // the pub setup key, for testing
+    private $hostkey;     // current host key
     private $currentHost;
     private $scsid;
     private $sessionData;
@@ -20,14 +23,20 @@ class ClaSnapClient
         $this->sessionData=array();
         $this->scsid=null;
         $this->currentHost='';
+        $this->hostkey=null;
        
-        $this->scsetupkey=file_get_contents(SC_SETUP_KEY);
+        $this->scsetupkey=openssl_pkey_get_private('file://' . SC_SETUP_KEY);
         if($this->scsetupkey===false)
-            throw new Exception('Setup key file read failed.');
+            throw new Exception('I could not parse the setup key.');
+        $this->scsetuppub=openssl_pkey_get_public('file://' . SC_SETUP_PUB_KEY);
+        if($this->scsetuppub===false)
+            throw new Exception('I could not parse the setup public key.');
+                
     }
     
     public function SUP($keyfile,$host,$snappath)
     {
+        $this->setupMode=true;
         trim($snappath);
         if($snappath[strlen($snappath)-1]!=='/')
         {
@@ -40,18 +49,55 @@ class ClaSnapClient
         $appkey=file_get_contents($keyfile);
         if($appkey===false)
         {
+            $this->setupMode=false;
             throw new Exception('I could not read the contents of the application key file.');
         }
         
         //TODO: HLO
-        $args=array('sc_appkey',$appkey);
+        $args=array('sc_appkey'=>$appkey);
     echo "IIII: Executing command SUP\n";
         $this->execCommand('SUP',$url,$args);
     echo "IIII: Command execution completed.\n";
         
         //TODO: BYE
+        $this->setupMode=false;
     }
     
+    private function decryptString($argstring,$ekey)
+    {
+        $estr=base64_decode($argstring);
+        $echunks=explode(',',$estr);
+        $rstr='';
+        foreach($echunks as $chunk)
+        {
+            
+            $pchunk='';
+            if(!openssl_public_decrypt(base64_decode($chunk),$pchunk,$ekey))
+                throw new Exception('I could not decrypt one of the client chunks.');
+            $rstr.=$pchunk;
+        }
+        return $rstr;
+        
+    }
+    // have to encrypt in chunks
+    // assumes a 4096 bit key
+    // so can encrypt in 4096/8-11 = 501 byte chunks.  will use blocks of 400 bytes.
+    // output will be a base64 encoded string of base64 encoded chunks separated by ','
+    private function encryptString($pstr,$ekey)
+    {
+        $BLKSIZE=400;
+        $pchunks=str_split($pstr,$BLKSIZE);
+        $echunks=array();
+        foreach($pchunks as $chunk)
+        {
+            $echunk='';
+            if(!openssl_private_encrypt($chunk,$echunk,$ekey))
+                throw new Exception("I could not encrypt a chunk of your string");
+            $echunks[]=base64_encode($echunk);
+        }
+        $estring=implode($echunks,',');
+        return base64_encode($estring);
+    }
     // $timeout is in seconds.  It's provided as an optional value so that when a backup command is run, it 
     // can be extended to 300 seconds or more.
     // $postArgs is passed as-is as the cURL post fields array, but with the following added in:
@@ -63,9 +109,22 @@ class ClaSnapClient
         if($ch===false)
             throw new Exception('Error initializing cURL');
        
+            
+        $ekey=($this->setupMode?$this->scsetupkey:$this->hostkey);
+        if(is_null($ekey))
+            throw new Exception('Encryption key is null.');
+        
+        $estr='';
         if(!is_null($this->scsid))
             $postArgs['sc_session']=$this->scsid;
+        
         $postArgs['sc_command']=$cmd;
+        $pargs=array();
+        foreach($postArgs as $k=>$v)
+        {
+            $pargs[$k]=$this->encryptString($v,$ekey);
+            //$ostring=$this->decryptString($pargs[$k],$this->scsetuppub); // if you want verify enc/dec.
+        }
         $opts=array
         (
             CURLOPT_RETURNTRANSFER=>1,          // get the response as the return value
@@ -75,7 +134,7 @@ class ClaSnapClient
             CURLOPT_SSL_VERIFYHOST => 0,        // don't verify certs and stuff.
             CURLOPT_SSL_VERIFYPEER => false,    // ditto
             CURLOPT_TIMEOUT=>$timeout,  
-            CURLOPT_POSTFIELDS=>$postArgs,
+            CURLOPT_POSTFIELDS=>$pargs,
         );    
             
         curl_setopt_array($ch,$opts);
