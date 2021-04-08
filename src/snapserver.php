@@ -192,9 +192,30 @@ class ClaSnapServer
         return;
     }
     require($wpspec);
-    $rstr=DB_NAME . ', ' . DB_USER;
     
-    $this->emitResponse('DBD',$rstr);
+    // 	mysqldump -a -n --single-transaction --no-autocommit -u"$DBUSER" -p"$DBPASS" -h"$DBHOST" -P"$DBPORT" "$DBNAME" > "$DBBKSPEC"
+    //  exit code is 0 on success.
+    $dbtemp='/tmp/' . bin2hex(random_bytes(6));
+    $cmd="mysqldump -a -n --single-transaction --no-autocommit -u'" . DB_USER . "' -p'" . DB_PASSWORD . "' -h'" . DB_HOST . "' '" . DB_NAME . "' > $dbtemp" ;          
+    $cmdout='';
+    $cmdec=1;
+    if(exec($cmd,$cmdout,$cmdec)===false)
+    {
+        $this->emitResponse('ERR',"Failed to execute DB export");
+        return;
+    }
+    if($cmdec!=0)
+    {
+        $this->emitResponse('ERR',"Extraction failed with these message: " . implode("\n",$cmdout));
+        return;
+    }
+    
+    //TODO: this needs to be returned in a different way, in case the DB is HUGE.
+    $this->emitResponse('BDB',file_get_contents($dbtemp));
+    
+    unlink($dbtemp);
+    
+    
   }
   
   public function BDB()
