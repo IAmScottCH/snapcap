@@ -63,6 +63,8 @@ class ClaSnapClient
         $this->setupMode=false;
     }
     
+    // decrypt $argstring with the imported key $ekey
+    // see encryptString for the way the message is structured in chunks and encoded.
     private function decryptString($argstring,$ekey)
     {
         $estr=base64_decode($argstring);
