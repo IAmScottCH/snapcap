@@ -12,8 +12,9 @@ class ClaSnapServer
   private $currentCommand;
   private $postVars;
   private $scsid;
-  private $sessionData;
+  //private $sessionData;
   private $setupMode;
+  const BLKSIZE=400;
   // assumes argstring is encrypted and then base64-encoded
   private function decryptArgument($argstring)
   {
@@ -37,7 +38,8 @@ class ClaSnapServer
   // output will be a base64 encoded string of base64 encoded chunks separated by ','
   private function encryptString($pstr,$ekey)
   {
-      $BLKSIZE=400;
+      $BLKSIZE=ClaSnapServer::BLKSIZE;
+      
       $pchunks=str_split($pstr,$BLKSIZE);
       $echunks=array();
       foreach($pchunks as $chunk)
@@ -76,7 +78,7 @@ class ClaSnapServer
      }
      $this->currentCommand='NOP';
      $this->scsid=null;
-     $this->sessionData=array();
+     //$this->sessionData=array();
      $this->processPostVars();
   }
   
@@ -87,8 +89,9 @@ class ClaSnapServer
     $c=strtoupper(trim($pc));   
     switch($c)
     {
+        case 'BYE':
+        case 'HLO':
         case 'SUP':
-            echo 'COMMAND IS SUP';
             break;
             
         default:
@@ -101,26 +104,38 @@ class ClaSnapServer
   
   public function setSession()
   {
+      
       if(!isset($this->postVars['session']))
-          throw new Exception('You must process POST vars before a session may be established.');
+          if(!is_null($this->postVars['session']))
+           throw new Exception('You must process POST vars before a session may be established.');
 
       if(session_status()===PHP_SESSION_NONE)
       {
           session_start();
       }
       
+      // if the client did not send a session id, then create a new session.
       if(is_null($this->postVars['session']))
       {
+          if($this->currentCommand!=='HLO')  // null sessions from the client are only valid for HLO commands.
+              throw new Exception("Client did not provide a session id, but command was not HLO!");
           $this->scsid='sc_' . bin2hex(random_bytes(10));
           $_SESSION[$this->scsid]=array();
+      
       }
       else
-          $this->scsid=$this->postVars['session'];
+      {
+          $ec=trim($this->postVars['session']);
+          $pc=$this->decryptArgument($ec);
+          
+          $this->scsid=$pc;
+      }
       
-      if(!isset($_SESSION[$this->scsid]))
-          throw new Exception('Session initialization has failed.');
+      if(!isset($_SESSION[$this->scsid])) // will occur if the client sends the "wrong" session id.
+          throw new Exception('Session initialization has failed for session id ' . $this->scsid);
       
-      $this->sessionData=$_SESSION[$this->scsid];
+      //$this->sessionData=$_SESSION[$this->scsid];
+      
       
   }
   // NOTE: this is called by the constructor, so you shouldn't have to.
@@ -137,16 +152,61 @@ class ClaSnapServer
           $this->postVars['command']=$_POST['sc_command'];
       
       $this->identifyCommand();    
+      $this->setSession();
   }
     
   public function remoteSetup()
   {
+
+      if(!isset($_POST['sc_appkey']))
+          throw new Exception("Client did not supply an application key for the SUP command");
+      $this->postVars['sc_appkey']=$_POST['sc_appkey'];
+      $pkey=$this->decryptArgument($this->postVars['sc_appkey']);
+      $this->appPubKey=openssl_pkey_get_public($pkey);
+      if($this->setupPubKey===false)
+          throw new Exception('I could not parse the application key provided by the client.');
+      file_put_contents(SC_APP_KEY_FILE,$pkey);   
+      file_put_contents(SC_SUP_KEY_FILE,'');
+      $this->setupMode=false;
+      $this->emitResponse('SUP',$this->scsid);
+  }
+  public function HLO()
+  {
+      $this->emitResponse('HLO',$this->scsid);
+          
+  }
+  public function BYE()
+  {
+      $this->emitResponse('BYE',$this->scsid);
       
+  }
+  
+  // return command string and data as:
+  //   base64 encoded(encrypted(cmd)),base64 encoded(encrypted(data))
+  //   if $data is null, then it is not encrypted and the response does not 
+  //   include the comma and encrypted data part.  Really, I never use that.
+  public function emitResponse($cmd,$data)
+  {
+      $ekey=($this->setupMode?$this->setupPubKey:$this->appPubKey);
+      $ecmd=$this->encryptString($cmd,$ekey);
+      if(is_null($data))
+      {
+          echo $ecmd;
+          return;
+      }
+      $edata=$this->encryptString($data,$ekey);
+      echo $ecmd . ',' . $edata;
   }
   public function doCommand()
   {
       switch($this->currentCommand)
       {
+          case 'BYE':
+              $this->BYE();
+              break;
+          case 'HLO':
+              $this->HLO();
+              break;
           case 'SUP':
               $this->remoteSetup();
               break;
