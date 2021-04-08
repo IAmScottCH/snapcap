@@ -31,7 +31,10 @@ class ClaSnapServer
       }
       return $rstr;
   }
-  // see comments on this function in snapclient.php
+  // have to encrypt in chunks
+  // assumes a 4096 bit key
+  // so can encrypt in 4096/8-11 = 501 byte chunks.  will use blocks of 400 bytes.
+  // output will be a base64 encoded string of base64 encoded chunks separated by ','
   private function encryptString($pstr,$ekey)
   {
       $BLKSIZE=400;
