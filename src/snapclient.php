@@ -93,6 +93,37 @@ class ClaSnapClient
         $rdata=$this->decryptString($eparts[1]);
         return true;
     }
+    public function HLO($host,$snappath)
+    {
+        $rcmd='';
+        $rdata='';
+        $url='https://' . $host . '/' . $snappath . 'snapserver.php';
+        $args=array('');
+        $res=$this->execCommand('HLO',$url,$args,true);  // HLO always starts a new session.
+        if($res===false)
+            echo "EEEE: HLO failed: $this->lastExecMsg \n";
+        $this->processResponse($res,$rcmd,$rdata);
+        if($rcmd!=='HLO')
+            throw new Exception('Server replied with invalid response command: ' . $rcmd . "\n");
+        $this->scsid=$rdata;
+        echo "CIIII: Received response data: $rdata and using it to set the session id\n";
+    }
+    // returns sid.
+    public function BYE($host,$snappath)
+    {
+        $rcmd='';
+        $rdata='';
+        $url='https://' . $host . '/' . $snappath . 'snapserver.php';
+        $args=array('');
+        $res=$this->execCommand('BYE',$url,$args);
+        if($res===false)
+            echo "EEEE: BYE failed: $this->lastExecMsg \n";
+        $this->processResponse($res,$rcmd,$rdata);
+        if($rcmd!=='BYE')
+            throw new Exception('Server replied with invalid response command: ' . $rcmd . "\n");
+        echo "CIIII: Received response data: $rdata\n";
+        return $rdata;
+    }
     public function SUP($keybase,$host,$snappath)
     {
         $rcmd='';
@@ -103,7 +134,7 @@ class ClaSnapClient
         $prvkeyfile=$keybase . '.pem';
         $appprvkey=openssl_pkey_get_private('file://' . $prvkeyfile);
         if($appprvkey===false)
-            throw new Exception('I could not parse the application key.');
+            throw new Exception('I could not parse the application key from ' . $prvkeyfile);
             
         trim($snappath);
         if($snappath[strlen($snappath)-1]!=='/')
@@ -122,15 +153,8 @@ class ClaSnapClient
         }
         
         echo "CIIII: Sending HLO\n";
-        $args=array('');
-        $res=$this->execCommand('HLO',$url,$args,true);
-        if($res===false)
-            echo "EEEE: HLO failed: $this->lastExecMsg \n";
-        $this->processResponse($res,$rcmd,$rdata);
-        if($rcmd!=='HLO')
-            throw new Exception('Server replied with invalid response command: ' . $rcmd . "\n");
-        $this->scsid=$rdata;
-        echo "CIIII: Received response data: $rdata and using it to set the session id\n";
+        $this->HLO($host,$snappath);
+        
         
         echo "CIIII: Sending SUP\n";
         $args=array('sc_appkey'=>$appkey);
@@ -145,17 +169,52 @@ class ClaSnapClient
         //TODO: verify sid here, and if wrong, do ... something.
         
         echo "CIIII: Sending BYE\n";
-        $args=array('');
-        $res=$this->execCommand('BYE',$url,$args);
-        if($res===false)
-            echo "EEEE: BYE failed: $this->lastExecMsg \n";
-        $this->processResponse($res,$rcmd,$rdata);
-        if($rcmd!=='BYE')
-           throw new Exception('Server replied with invalid response command: ' . $rcmd . "\n");
-         echo "CIIII: Received response data: $rdata\n";
-         //TODO: verify sid here, and if wrong, do ... something.
+        $bsid=$this->BYE($host,$snappath);
+        //TODO: verify bsid is sc_sid here, and if wrong, do ... something.
+        
+         
     }
     
+    public function BDB($keybase,$host,$snappath,$lfilespec)
+    {
+        $rcmd='';
+        $rdata='';
+        $this->setupMode=false;
+        $this->hostKeyBase=$keybase;
+        $appkeyfile=$keybase . '.pem';
+        $this->hostkey=openssl_pkey_get_private('file://' . $appkeyfile);
+        if($this->hostkey===false)
+            throw new Exception('I could not parse the application key.');
+            
+        trim($snappath);
+        if($snappath[strlen($snappath)-1]!=='/')
+        {
+            if(strlen($snappath)>0)
+                $snappath=$snappath . '/';
+        }
+        $url='https://' . $host . '/' . $snappath . 'snapserver.php'; 
+        // protocol is:  HLO,BDB,BYE
+        
+        echo "CIIII: Sending HLO\n";
+        $this->HLO($host,$snappath);
+        
+        //TODO: support more modes than just wordpress, and take the mode on the command line or something
+        echo "CIIII: Sending BDB\n";
+        $args=array('sc_mode'=>'wordpress');
+        $res=$this->execCommand('BDB',$url,$args);
+        if($res===false)
+            echo "EEEE: BDB failed: $this->lastExecMsg \n";
+        
+        $this->processResponse($res,$rcmd,$rdata);
+        if($rcmd=='ERR')
+            echo "CEEEE: Server had an error: $rdata \n";
+        else
+            echo "CIIII: Received response data: $rdata \n";
+        
+        echo "CIIII: Sending BYE\n";
+        $bsid=$this->BYE($host,$snappath);
+        //TODO: verify bsid is sc_sid here, and if wrong, do ... something.       
+    }
 
     // $timeout is in seconds.  It's provided as an optional value so that when a backup command is run, it 
     // can be extended to 300 seconds or more.
@@ -217,6 +276,11 @@ if(defined('STDIN'))
     $command=strtoupper(trim($argv[1]));
     switch($command)
     {
+        case 'BDB':
+            if($argc<5)
+                throw new Exception('The BDB command requires 4 arguments: application key file base, taget host IP address or name, path to snapserver.php on the remote host, and local backup file name.');
+            $sci->BDB($argv[2],$argv[3],$argv[4],$argv[5]);    
+            break;       
         case 'SUP':
             if($argc<4)
                 throw new Exception('The SUP command requires 3 arguments: public key file base, target host IP address or name, and path to snapserver.php on the remote host.');

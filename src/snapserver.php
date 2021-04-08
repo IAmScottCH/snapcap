@@ -89,6 +89,7 @@ class ClaSnapServer
     $c=strtoupper(trim($pc));   
     switch($c)
     {
+        case 'BDB':
         case 'BYE':
         case 'HLO':
         case 'SUP':
@@ -181,6 +182,41 @@ class ClaSnapServer
       
   }
   
+  private function doWordPressDBBackup()
+  {
+    // I get to assume I am a plugin.  So wp-config.php should be at:
+    $wpspec='../../../wp-config.php';
+    if(!file_exists($wpspec))
+    {
+        $this->emitResponse('ERR','I do not appear to be installed as a WordPress plugin.');
+        return;
+    }
+    require($wpspec);
+    $rstr=DB_NAME . ', ' . DB_USER;
+    
+    $this->emitResponse('DBD',$rstr);
+  }
+  
+  public function BDB()
+  {
+      if(!isset($_POST['sc_mode']))
+          throw new Exception("Client did not supply an mode for the BDB command");
+      $this->postVars['sc_mode']=$_POST['sc_mode'];
+      $bdbmode=strtolower(trim($this->decryptArgument($this->postVars['sc_mode'])));
+      // Several possible modes.  The args will say which:
+      // mode=>wordpress implies snapserver was installed as a plugin and should find wp-config.php
+      // mode=m**** implies maria or mysql, and more arguments: dbname,dbuser,dbpass,dbhost,dbport
+      switch($bdbmode)
+      {
+          case 'wordpress':
+              $this->doWordPressDBBackup();
+              break;
+          default:
+              throw new Exception('Invalid BDB mode: '. $bdbmode);
+              break;
+      }
+  }
+  
   // return command string and data as:
   //   base64 encoded(encrypted(cmd)),base64 encoded(encrypted(data))
   //   if $data is null, then it is not encrypted and the response does not 
@@ -201,6 +237,9 @@ class ClaSnapServer
   {
       switch($this->currentCommand)
       {
+          case 'BDB':
+              $this->BDB();
+              break;
           case 'BYE':
               $this->BYE();
               break;
