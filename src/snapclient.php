@@ -270,7 +270,7 @@ class ClaSnapClient
 // command line mode operation
 if(defined('STDIN'))
 {
-    $sci=new ClaSnapClient();
+    echo "CIIII: $argc arguments were provided\n";
     if($argc<2)
         throw new Exception('Please enter a command with your request.');
     $command=strtoupper(trim($argv[1]));
@@ -279,11 +279,13 @@ if(defined('STDIN'))
         case 'BDB':
             if($argc<5)
                 throw new Exception('The BDB command requires 4 arguments: application key file base, taget host IP address or name, path to snapserver.php on the remote host, and local backup file name.');
+            $sci=new ClaSnapClient();
             $sci->BDB($argv[2],$argv[3],$argv[4],$argv[5]);    
             break;       
         case 'SUP':
             if($argc<4)
                 throw new Exception('The SUP command requires 3 arguments: public key file base, target host IP address or name, and path to snapserver.php on the remote host.');
+            $sci=new ClaSnapClient();
             $keyfilespec=$argv[2];
             $targetHost=$argv[3];
             $snappath=$argv[4];
