@@ -47,6 +47,64 @@ class ClaSnapClient
             throw new Exception('I could not parse the setup public key.');
                 
     }
+    private function decryptFile($efile,$pfile)
+    {
+      $fsize=filesize($efile);
+      $fsh=fopen($efile,"rb");
+      if($fsh===false)
+          throw new Exception("Could not open source file for decryption");
+      $fth=fopen($pfile,"wb");
+      if($fth===false)
+      {
+          fclose($fsh);
+          throw new Exception("Could not open target file for decryption");
+      }
+      
+      $fw=true;
+      $fsize=filesize($efile);
+      while(!feof($fsh))
+      {
+        $pstr='';
+        $estr=stream_get_line($fsh,$fsize,',');  // does not return delimiter itself
+        if($estr===false)
+        {
+            fclose($fsh);
+            fclose($fth);
+            throw new Exception("Error decrypting file during read");
+        }
+        try 
+        {
+            $pstr=$this->decryptString($estr);
+            
+        } catch (Exception $e) 
+        {
+            fclose($fsh);
+            fclose($fth);
+            throw $e;
+        }
+        if(!$fw)
+        {
+            if(fwrite($fth,',')===false)
+            {
+                fclose($fsh);
+                fclose($fth);
+                throw new Exception("Error decrypting file while writing separator");
+            }
+            $fw=false;
+        }
+        if(fwrite($fth,$pstr)===false)
+        {
+            fclose($fsh);
+            fclose($fth);
+            throw new Exception("Error decrypting file during write");
+        }
+      }
+      
+         
+      
+      fclose($fsh);
+      fclose($fth);        
+    }
     // decrypt $argstring with the imported key $ekey
     // see encryptString for the way the message is structured in chunks and encoded.
     private function decryptString($argstring)
@@ -177,6 +235,11 @@ class ClaSnapClient
     
     public function BDB($keybase,$host,$snappath,$lfilespec)
     {
+        echo "CIIII: BDB args:\n";
+        echo "C-III:   keybase: $keybase \n";
+        echo "C-III:      host: $host \n";
+        echo "C-III:  snappath: $snappath \n";
+        echo "C-III: lfilespec: $lfilespec \n";
         $rcmd='';
         $rdata='';
         $this->setupMode=false;
@@ -201,19 +264,26 @@ class ClaSnapClient
         //TODO: support more modes than just wordpress, and take the mode on the command line or something
         echo "CIIII: Sending BDB\n";
         $args=array('sc_mode'=>'wordpress');
-        $res=$this->execCommand('BDB',$url,$args);
+        $res=$this->execCommand('BDB',$url,$args,false,$lfilespec,300); //TODO: don't hardcode the timeout
         if($res===false)
             echo "EEEE: BDB failed: $this->lastExecMsg \n";
-        
+        /*
         $this->processResponse($res,$rcmd,$rdata);
         if($rcmd=='ERR')
             echo "CEEEE: Server had an error: $rdata \n";
         else
-            echo "CIIII: Received response data: $rdata \n";
+        */
+        echo "CIIII: Received response data.\n";
+        //TODO: You need to do something to verify (a) the response is not just an ERR response and (b) it decrypts.
+        //      You COULD add another protocol command VFY, that would generate a checksum or something and ask the server
+        //      to verify the checksum is correct.
         
         echo "CIIII: Sending BYE\n";
         $bsid=$this->BYE($host,$snappath);
-        //TODO: verify bsid is sc_sid here, and if wrong, do ... something.       
+        //TODO: verify bsid is sc_sid here, and if wrong, do ... something.      
+        
+        $dfspec=$lfilespec . '.plain';
+        $this->decryptFile($lfilespec,$dfspec);
     }
 
     // $timeout is in seconds.  It's provided as an optional value so that when a backup command is run, it 
@@ -222,12 +292,26 @@ class ClaSnapClient
     //    sc_session => current scsid
     //    sc_command => command provided in $cmd
     // setting $clearcookies to true will force all cookies to be cleared, to start a new session.
-    private function execCommand($cmd,$url,$postArgs,$clearcookies=false,$timeout=20)
+    // if $intofile is not null, it is used as a filename of file to get the response from.
+    //   This is useful for BDB and BFL, where the server will send nothing but the app key
+    //   encrypted DB SQL or filesystem backup archive content.
+    private function execCommand($cmd,$url,$postArgs,$clearcookies=false,$intofile=null,$timeout=20)
     {
+        $doingFile=($intofile!==null);
+        $fh=null;
+        if($doingFile)
+        {
+            $fh=fopen($intofile,"wb");
+            if($fh===false)
+                throw new Exception("I cannot open file $intofile for writing");
+        }
         $ch=curl_init($url);
         if($ch===false)
+        {
+            if($doingFile)
+                fclose($fh);
             throw new Exception('Error initializing cURL');
-        
+        }
         $estr='';
         if(!is_null($this->scsid))
             $postArgs['sc_session']=$this->scsid;
@@ -241,7 +325,6 @@ class ClaSnapClient
         }
         $opts=array
         (
-            CURLOPT_RETURNTRANSFER=>true,          // get the response as the return value
             CURLOPT_POST=>true,
             CURLOPT_USERAGENT=>'snapclient',
             CURLOPT_FOLLOWLOCATION => true,     // follow redirects
@@ -253,6 +336,13 @@ class ClaSnapClient
             CURLOPT_COOKIEJAR=>$this->cookiejar,
         );    
         
+        if($doingFile)
+        {
+            $opts[CURLOPT_FILE]=$fh;
+        }
+        else 
+            $opts[CURLOPT_RETURNTRANSFER]=true;
+        
         if($clearcookies)
             $opts[CURLOPT_COOKIESESSION]=true;
             
@@ -262,6 +352,8 @@ class ClaSnapClient
         $this->lastExecMsg=curl_error($ch);
             
         curl_close($ch);
+        if($doingFile)
+         fclose($fh);
         
         return $rcon;
     }

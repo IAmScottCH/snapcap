@@ -3,6 +3,8 @@
 /*
  * MOST IMPORTANT NOTE: Exception messages must be read in a sultry, female, robot voice.  Thank you.
  */
+
+//TODO: consider set_time_limit(0); for BDB, BFL.
 DEFINE('SC_APP_KEY_FILE','sc_app_key.pub');
 DEFINE('SC_SUP_KEY_FILE','sc_sup_key.pub');
 class ClaSnapServer
@@ -31,6 +33,63 @@ class ClaSnapServer
           $rstr.=$pchunk;
       }
       return $rstr;
+  }
+  private function encryptFile($srcfile,$tarfile,$ekey)
+  {
+      $BLKSIZE=ClaSnapServer::BLKSIZE;
+      
+      $fsh=fopen($srcfile,"rb");
+      if($fsh===false)
+          throw new Exception("Could not open source file for encryption");
+      $fth=fopen($tarfile,"wb");
+      if($fth===false)
+      {
+          fclose($fsh);
+          throw new Exception("Could not open target file for encryption");
+      }
+      
+      $fw=true;
+      while(!feof($fsh))
+      {
+        $pstr=fread($fsh,$BLKSIZE);
+        if($pstr===false)
+        {
+            fclose($fsh);
+            fclose($fth);
+            throw new Exception("Error encrypting file during read");
+        }
+        try 
+        {
+            $estr=$this->encryptString($pstr, $ekey);
+            
+        } catch (Exception $e) 
+        {
+            fclose($fsh);
+            fclose($fth);
+            throw $e;
+        }
+        if(!$fw)
+        {
+            if(fwrite($fth,',')===false)
+            {
+                fclose($fsh);
+                fclose($fth);
+                throw new Exception("Error encrypting file while writing separator");
+            }
+        }
+        if(fwrite($fth,$estr)===false)
+        {
+            fclose($fsh);
+            fclose($fth);
+            throw new Exception("Error encrypting file during write");
+        }
+        $fw=false;
+      }
+      
+         
+      
+      fclose($fsh);
+      fclose($fth);
   }
   // have to encrypt in chunks
   // assumes a 4096 bit key
@@ -195,8 +254,10 @@ class ClaSnapServer
     
     // 	mysqldump -a -n --single-transaction --no-autocommit -u"$DBUSER" -p"$DBPASS" -h"$DBHOST" -P"$DBPORT" "$DBNAME" > "$DBBKSPEC"
     //  exit code is 0 on success.
-    $dbtemp='/tmp/' . bin2hex(random_bytes(6));
-    $cmd="mysqldump -a -n --single-transaction --no-autocommit -u'" . DB_USER . "' -p'" . DB_PASSWORD . "' -h'" . DB_HOST . "' '" . DB_NAME . "' > $dbtemp" ;          
+    $dbtempname= bin2hex(random_bytes(6));
+    $dbtempspec='/tmp/' . $dbtempname;
+    $dbplainspec='/tmp/' . bin2hex(random_bytes(6));
+    $cmd="mysqldump -a -n --single-transaction --no-autocommit -u'" . DB_USER . "' -p'" . DB_PASSWORD . "' -h'" . DB_HOST . "' '" . DB_NAME . "' > $dbplainspec" ;          
     $cmdout='';
     $cmdec=1;
     if(exec($cmd,$cmdout,$cmdec)===false)
@@ -210,10 +271,13 @@ class ClaSnapServer
         return;
     }
     
-    //TODO: this needs to be returned in a different way, in case the DB is HUGE.
-    $this->emitResponse('BDB',file_get_contents($dbtemp));
+    $this->encryptFile($dbplainspec,$dbtempspec,$this->appPubKey);
+    $this->emitFile($dbtempname,$dbtempspec);
+    //$this->emitResponse('BDB',file_get_contents($dbtempspec));
+    //TODO: if you add the VFY protocol command, then this is a good place to generate the checksum.
     
-    unlink($dbtemp);
+    unlink($dbtempspec);
+    unlink($dbplainspec);
     
     
   }
@@ -238,6 +302,22 @@ class ClaSnapServer
       }
   }
   
+  public function emitFile($fname,$fspec)
+  {
+    $fsize=filesize($fspec);
+    @ob_end_clean();
+    
+    header('Content-Type: application/octet-stream');
+    header('Content-Disposition: attachment; filename="'. $fname . '"');
+    header('Content-Transfer-Encoding: binary');
+    header('Accept-Ranges: bytes');
+    
+    header('Content-Length: ' . $fsize);
+    
+    readfile($fspec);  //TODO: if return code is false, ERR, if return code != $fsize, ERR.
+    die();
+    
+  }
   // return command string and data as:
   //   base64 encoded(encrypted(cmd)),base64 encoded(encrypted(data))
   //   if $data is null, then it is not encrypted and the response does not 
