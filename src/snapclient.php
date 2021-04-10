@@ -224,11 +224,14 @@ class ClaSnapClient
         
         $this->processResponse($res,$rcmd,$rdata);
         echo "CIIII: Received response data: $rdata \n";
-        //TODO: verify sid here, and if wrong, do ... something.
+         if($rdata!==$this->scsid)
+            echo "CWWWW: SUP SC SID from server seems wrong\n";
+        
         
         echo "CIIII: Sending BYE\n";
         $bsid=$this->BYE($host,$snappath);
-        //TODO: verify bsid is sc_sid here, and if wrong, do ... something.
+        if($bsid!==$this->scsid)
+            echo "CWWWW: BYE SC SID from server seems wrong\n";
         
          
     }
@@ -249,6 +252,9 @@ class ClaSnapClient
         if($this->hostkey===false)
             throw new Exception('I could not parse the application key.');
             
+        // this will potentially take the server a long time, so:
+        if(set_time_limit(0)===false)
+            echo "CWWWW: WARNING: I could not set an infinite time limit for the script execution\n";
         trim($snappath);
         if($snappath[strlen($snappath)-1]!=='/')
         {
@@ -256,7 +262,7 @@ class ClaSnapClient
                 $snappath=$snappath . '/';
         }
         $url='https://' . $host . '/' . $snappath . 'snapserver.php'; 
-        // protocol is:  HLO,BDB,BYE
+        // protocol is:  HLO,BFL,SND,BYE
         
         echo "CIIII: Sending HLO\n";
         $this->HLO($host,$snappath);
@@ -294,7 +300,8 @@ class ClaSnapClient
        
         echo "CIIII: Sending BYE\n";
         $bsid=$this->BYE($host,$snappath);
-        //TODO: verify bsid is sc_sid here, and if wrong, do ... something.      
+        if($bsid!==$this->scsid)
+            echo "CWWWW: BYE SC SID from server seems wrong\n";
         
         $dfspec=$lfilespec . '.plain';
         $this->decryptFile($lfilespec,$dfspec);
@@ -316,7 +323,11 @@ class ClaSnapClient
         $this->hostkey=openssl_pkey_get_private('file://' . $appkeyfile);
         if($this->hostkey===false)
             throw new Exception('I could not parse the application key.');
-            
+ 
+        // this will potentially take the server a long time, so:
+        if(set_time_limit(0)===false)
+            echo "CWWWW: WARNING: I could not set an infinite time limit for the script execution\n";
+        
         trim($snappath);
         if($snappath[strlen($snappath)-1]!=='/')
         {
@@ -324,7 +335,7 @@ class ClaSnapClient
                 $snappath=$snappath . '/';
         }
         $url='https://' . $host . '/' . $snappath . 'snapserver.php'; 
-        // protocol is:  HLO,BDB,BYE
+        // protocol is:  HLO,BDB,SND,BYE
         
         echo "CIIII: Sending HLO\n";
         $this->HLO($host,$snappath);
@@ -345,7 +356,7 @@ class ClaSnapClient
             echo "CIIII: The server's checksum is $chksum \n";
             $res=$this->execCommand('SND',$url,$args,false,$lfilespec,300); //TODO: don't hardcode the timeout
             if($res===false)
-                echo "EEEE: SND failed: $this->lastExecMsg \n";
+                echo "CEEEE: SND failed: $this->lastExecMsg \n";
             else 
             {
                 echo "CIIII: DB backup data received.  Verifying checksum.\n";
@@ -362,7 +373,8 @@ class ClaSnapClient
        
         echo "CIIII: Sending BYE\n";
         $bsid=$this->BYE($host,$snappath);
-        //TODO: verify bsid is sc_sid here, and if wrong, do ... something.      
+        if($bsid!==$this->scsid)
+            echo "CWWWW: BYE SC SID from server seems wrong\n";
         
         $dfspec=$lfilespec . '.plain';
         $this->decryptFile($lfilespec,$dfspec);
@@ -377,6 +389,9 @@ class ClaSnapClient
     // if $intofile is not null, it is used as a filename of file to get the response from.
     //   This is useful for BDB and BFL, where the server will send nothing but the app key
     //   encrypted DB SQL or filesystem backup archive content.
+    // TODO: see other TODO's.  I don't think I actually need the  timeout, though, since I deal with it
+    //       in functions like BDB anyway.  So, I have to decide if I want to pass it in here or if
+    //       I want to just let caller functions deal with timeouts.  I'm not sure which is prettier.  I'm conflicted.
     private function execCommand($cmd,$url,$postArgs,$clearcookies=false,$intofile=null,$timeout=20)
     {
         $doingFile=($intofile!==null);

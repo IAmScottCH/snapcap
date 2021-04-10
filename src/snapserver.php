@@ -4,9 +4,11 @@
  * MOST IMPORTANT NOTE: Exception messages must be read in a sultry, female, robot voice.  Thank you.
  */
 
-//TODO: consider set_time_limit(0); for BDB, BFL.
+
 DEFINE('SC_APP_KEY_FILE','sc_app_key.pub');
 DEFINE('SC_SUP_KEY_FILE','sc_sup_key.pub');
+DEFINE('SC_LONG_TIME',600); // seconds. 10 minutes.  
+
 class ClaSnapServer
 {
   private $setupPubKey;
@@ -29,7 +31,10 @@ class ClaSnapServer
           $dchunk=base64_decode($chunk);
           $pchunk='';
           if(!openssl_public_decrypt($dchunk,$pchunk,$ekey))
+          {
+              header("HTTP/1.0 500 DA failed");
               throw new Exception('I could not decrypt one of the client chunks.');
+          }
           $rstr.=$pchunk;
       }
       return $rstr;
@@ -40,11 +45,15 @@ class ClaSnapServer
       
       $fsh=fopen($srcfile,"rb");
       if($fsh===false)
+      {
+          header("HTTP/1.0 500 Source file unreadable");
           throw new Exception("Could not open source file for encryption");
+      }
       $fth=fopen($tarfile,"wb");
       if($fth===false)
       {
           fclose($fsh);
+          header("HTTP/1.0 500 Target file unwritable");
           throw new Exception("Could not open target file for encryption");
       }
       
@@ -56,6 +65,7 @@ class ClaSnapServer
         {
             fclose($fsh);
             fclose($fth);
+            header("HTTP/1.0 500 Source file read error");
             throw new Exception("Error encrypting file during read");
         }
         try 
@@ -74,6 +84,7 @@ class ClaSnapServer
             {
                 fclose($fsh);
                 fclose($fth);
+                header("HTTP/1.0 500 Target file delimiter write error");
                 throw new Exception("Error encrypting file while writing separator");
             }
         }
@@ -81,6 +92,7 @@ class ClaSnapServer
         {
             fclose($fsh);
             fclose($fth);
+            header("HTTP/1.0 500 Target file write error");
             throw new Exception("Error encrypting file during write");
         }
         $fw=false;
@@ -105,7 +117,10 @@ class ClaSnapServer
       {
           $echunk='';
           if(!openssl_public_encrypt($chunk,$echunk,$ekey))
+          {
+              header("HTTP/1.0 500 ES failed");
               throw new Exception("I could not encrypt a chunk of your string");
+          }
           $echunks[]=base64_encode($echunk);
       }
       $estring=implode($echunks,',');
@@ -113,18 +128,25 @@ class ClaSnapServer
   }
   public function __construct()
   {
-     //TODO: after setup, empty the file such that the remote client can't
-     //      do setup again.
+     //after setup, I will empty the SC_SUP_KEY_FILE file such that a remote client can't
+     //      do setup again.  But, I will leave the file there so I have something to read,
+     //      even if it is empty.  I don't know why.  Whatever.
      $this->setupMode=true;
      $this->setupPubKey=file_get_contents(SC_SUP_KEY_FILE);
      if($this->setupPubKey===false)
+     {
+         header("HTTP/1.0 500 SUP key unreadable");
          throw new Exception('I could not read the setup key file.');
+     }
      if(strlen($this->setupPubKey)==0)
      {
          $this->setupPubKey=null;
          $this->appPubKey=openssl_pkey_get_public('file://' . SC_APP_KEY_FILE);
          if($this->appPubKey===false)
+         {
+            header("HTTP/1.0 500 Key ring is empty");
              throw new Exception('There are no keys available.  You will need to call a technician to help me.');
+         }
          $this->setupMode=false;
      }
      else
@@ -132,12 +154,15 @@ class ClaSnapServer
          $this->appPubKey=null;
          $this->setupPubKey=openssl_pkey_get_public($this->setupPubKey);
          if($this->setupPubKey===false)
-             throw new Exception('I could not parse the setup key.');
+         {
+            header("HTTP/1.0 500 SUP key invalid");
+            throw new Exception('I could not parse the setup key.');
+         }
          $this->setupMode=true;    
      }
      $this->currentCommand='NOP';
      $this->scsid=null;
-     //$this->sessionData=array();
+    
      $this->processPostVars();
   }
   
@@ -157,6 +182,7 @@ class ClaSnapServer
             break;
             
         default:
+            header("HTTP/1.0 403 Not allowed");
             throw new Exception("Command $c not recognized");
             break;
     }
@@ -168,8 +194,13 @@ class ClaSnapServer
   {
       
       if(!isset($this->postVars['session']))
+      {
           if(!is_null($this->postVars['session']))
-           throw new Exception('You must process POST vars before a session may be established.');
+          {
+            header("HTTP/1.0 500 Setup sequence is incorrect");
+            throw new Exception('You must process POST vars before a session may be established.');
+          }
+      }
 
       if(session_status()===PHP_SESSION_NONE)
       {
@@ -180,7 +211,10 @@ class ClaSnapServer
       if(is_null($this->postVars['session']))
       {
           if($this->currentCommand!=='HLO')  // null sessions from the client are only valid for HLO commands.
+          {
+              header("HTTP/1.0 400 SC Session ID not provided");
               throw new Exception("Client did not provide a session id, but command was not HLO!");
+          }
           $this->scsid='sc_' . bin2hex(random_bytes(10));
           $_SESSION[$this->scsid]=array();
       
@@ -194,8 +228,10 @@ class ClaSnapServer
       }
       
       if(!isset($_SESSION[$this->scsid])) // will occur if the client sends the "wrong" session id.
+      {
+          header("HTTP/1.0 400 Invalid Session ID");
           throw new Exception('Session initialization has failed for session id ' . $this->scsid);
-      
+      }
       //$this->sessionData=$_SESSION[$this->scsid];
       
       
@@ -226,7 +262,10 @@ class ClaSnapServer
       $pkey=$this->decryptArgument($this->postVars['sc_appkey']);
       $this->appPubKey=openssl_pkey_get_public($pkey);
       if($this->setupPubKey===false)
+      {
+          header("HTTP/1.0 400 Invalid application key");
           throw new Exception('I could not parse the application key provided by the client.');
+      }
       file_put_contents(SC_APP_KEY_FILE,$pkey);   
       file_put_contents(SC_SUP_KEY_FILE,'');
       $this->setupMode=false;
@@ -256,6 +295,10 @@ class ClaSnapServer
          $this->emitResponse('ERR',"There is no file send operation pending.");
          return;
      }
+     // all the pre-condition checks are done, so now I'll set a long time limit, since I have
+     // no idea in some cases how short it is on some servers.
+     @set_time_limit(SC_LONG_TIME);  // I don't really care very much if this call fails.
+     
      $finfo=$_SESSION[$this->scsid]['tempfile'];
      $this->emitFile($finfo['name'],$finfo['spec']);  // does a die()
    
@@ -270,6 +313,10 @@ class ClaSnapServer
         return;
     }
     require($wpspec);
+    
+    // through all the checks, so set a long time limit.  I don't *think* the time in exec() is counted, but the
+    // time spent in encrypting the file will be.
+    @set_time_limit(SC_LONG_TIME);  // I don't really care very much if this call fails.
     
     // 	mysqldump -a -n --single-transaction --no-autocommit -u"$DBUSER" -p"$DBPASS" -h"$DBHOST" -P"$DBPORT" "$DBNAME" > "$DBBKSPEC"
     //  exit code is 0 on success.
@@ -321,9 +368,11 @@ class ClaSnapServer
         return;
     }
     
+    // through all the checks, so set a long time limit.  I don't *think* the time in exec() is counted, but the
+    // time spent in encrypting the file will be.
+    @set_time_limit(SC_LONG_TIME);  // I don't really care very much if this call fails.
     
-    // 	mysqldump -a -n --single-transaction --no-autocommit -u"$DBUSER" -p"$DBPASS" -h"$DBHOST" -P"$DBPORT" "$DBNAME" > "$DBBKSPEC"
-    //  exit code is 0 on success.
+    //  exit code of tar is 0 on success.
     $filtempname= 'sc_' . bin2hex(random_bytes(6));
     $filtempspec='/tmp/' . $filtempname;
     $filplainspec='/tmp/sc_' . bin2hex(random_bytes(6));
@@ -368,6 +417,7 @@ class ClaSnapServer
               $this->doWordPressFileBackup();
               break;
           default:
+              header("HTTP/1.0 400 Invalid BFL mode");
               throw new Exception('Invalid BFL mode: '. $bflmode);
               break;
       }     
@@ -387,6 +437,7 @@ class ClaSnapServer
               $this->doWordPressDBBackup();
               break;
           default:
+              header("HTTP/1.0 400 Invalid BDB  mode");
               throw new Exception('Invalid BDB mode: '. $bdbmode);
               break;
       }
@@ -447,6 +498,7 @@ class ClaSnapServer
               $this->remoteSetup();
               break;
           default:
+              header("HTTP/1.0 403 Invalid command string");
               throw new Exception('Unrecognized command.');
               break;
       }
