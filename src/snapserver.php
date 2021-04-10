@@ -149,6 +149,7 @@ class ClaSnapServer
     switch($c)
     {
         case 'BDB':
+        case 'BFL':
         case 'BYE':
         case 'HLO':
         case 'SND':
@@ -244,6 +245,7 @@ class ClaSnapServer
           unset($_SESSION[$this->scsid]['tempfile']);
       }
       $this->emitResponse('BYE',$this->scsid);
+      unset($_SESSION[$this->scsid]);  // BYE means the session is over.
       
   }
   
@@ -298,7 +300,78 @@ class ClaSnapServer
     
     
   }
-  
+  private function doWordPressFileBackup()
+  {
+    // I get to assume I am a plugin.  So wp-config.php should be at:
+    $wpspec='../../../wp-config.php';
+    if(!file_exists($wpspec))
+    {
+        $this->emitResponse('ERR','I do not appear to be installed as a WordPress plugin.');
+        return;
+    }
+    $cwd=getcwd();
+    if($cwd===false)
+    {
+        $this->emitResponse('ERR',"Could not get current working directory");
+        return;
+    }
+    if(chdir('../../..')===false)  // go into wp-config.php's directory
+    {
+        $this->emitResponse('ERR',"Could not set working directory");
+        return;
+    }
+    
+    
+    // 	mysqldump -a -n --single-transaction --no-autocommit -u"$DBUSER" -p"$DBPASS" -h"$DBHOST" -P"$DBPORT" "$DBNAME" > "$DBBKSPEC"
+    //  exit code is 0 on success.
+    $filtempname= 'sc_' . bin2hex(random_bytes(6));
+    $filtempspec='/tmp/' . $filtempname;
+    $filplainspec='/tmp/sc_' . bin2hex(random_bytes(6));
+    
+    $cmd="tar -czf '$filplainspec' .";          
+    $cmdout='';
+    $cmdec=1;
+    if(exec($cmd,$cmdout,$cmdec)===false)
+    {
+        $this->emitResponse('ERR',"Failed to execute file export");
+        return;
+    }
+    if($cmdec!=0)
+    {
+        $this->emitResponse('ERR',"Archiving failed with these message: " . implode("\n",$cmdout));
+        return;
+    }
+    
+    $this->encryptFile($filplainspec,$filtempspec,$this->appPubKey);
+    unlink($filplainspec);
+    $_SESSION[$this->scsid]['tempfile']=array("name"=>$filtempname,"spec"=>$filtempspec);
+    
+    $chksum=md5_file($filtempspec);
+    $this->emitResponse('BFL',$chksum);
+
+    
+    
+  }
+  public function BFL()
+  {
+      if(!isset($_POST['sc_mode']))
+          throw new Exception("Client did not supply an mode for the BFL command");
+      $this->postVars['sc_mode']=$_POST['sc_mode'];
+      $bflmode=strtolower(trim($this->decryptArgument($this->postVars['sc_mode'])));
+      // Several possible modes.  The args will say which:
+      // mode=>wordpress implies snapserver was installed as a plugin and should verify wp-config.php is
+      // where it things it ought to be, and then backup from there down.
+      // mode=m**** implies maria or mysql, and more arguments: dbname,dbuser,dbpass,dbhost,dbport
+      switch($bflmode)
+      {
+          case 'wordpress':
+              $this->doWordPressFileBackup();
+              break;
+          default:
+              throw new Exception('Invalid BFL mode: '. $bflmode);
+              break;
+      }     
+  }
   public function BDB()
   {
       if(!isset($_POST['sc_mode']))
@@ -357,6 +430,9 @@ class ClaSnapServer
       {
           case 'BDB':
               $this->BDB();
+              break;
+          case 'BFL':
+              $this->BFL();
               break;
           case 'BYE':
               $this->BYE();

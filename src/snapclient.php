@@ -232,6 +232,73 @@ class ClaSnapClient
         
          
     }
+    public function BFL($keybase,$host,$snappath,$lfilespec)
+    {
+        echo "CIIII: BFL args:\n";
+        echo "C-III:   keybase: $keybase \n";
+        echo "C-III:      host: $host \n";
+        echo "C-III:  snappath: $snappath \n";
+        echo "C-III: lfilespec: $lfilespec \n";
+        $rcmd='';
+        $rdata='';
+        $chksum='';
+        $this->setupMode=false;
+        $this->hostKeyBase=$keybase;
+        $appkeyfile=$keybase . '.pem';
+        $this->hostkey=openssl_pkey_get_private('file://' . $appkeyfile);
+        if($this->hostkey===false)
+            throw new Exception('I could not parse the application key.');
+            
+        trim($snappath);
+        if($snappath[strlen($snappath)-1]!=='/')
+        {
+            if(strlen($snappath)>0)
+                $snappath=$snappath . '/';
+        }
+        $url='https://' . $host . '/' . $snappath . 'snapserver.php'; 
+        // protocol is:  HLO,BDB,BYE
+        
+        echo "CIIII: Sending HLO\n";
+        $this->HLO($host,$snappath);
+        
+        //TODO: support more modes than just wordpress, and take the mode on the command line or something
+        echo "CIIII: Sending BFL\n";
+        $args=array('sc_mode'=>'wordpress');
+        
+        // First tell the server to create the backup
+        $res=$this->execCommand('BFL',$url,$args,false,null,300); //TODO: don't hardcode the timeout
+        
+        $this->processResponse($res,$rcmd,$rdata);
+        if($rcmd=='ERR')
+            echo "CEEEE: Server experienced an error making file backup: $rdata \n";
+        else 
+        {
+            $chksum=$rdata;
+            echo "CIIII: The server's checksum is $chksum \n";
+            $res=$this->execCommand('SND',$url,$args,false,$lfilespec,300); //TODO: don't hardcode the timeout
+            if($res===false)
+                echo "EEEE: SND failed: $this->lastExecMsg \n";
+            else 
+            {
+                echo "CIIII: File backup data received.  Verifying checksum.\n";
+                $mysum=md5_file($lfilespec);
+                echo "CIIII: My checksum is $mysum \n";
+                if($mysum!==$chksum)
+                {
+                    echo "CEEEE: Checksum verification failed!";
+                }
+                else 
+                    echo "CIIII: Checksum verification passed.";
+            }
+        }
+       
+        echo "CIIII: Sending BYE\n";
+        $bsid=$this->BYE($host,$snappath);
+        //TODO: verify bsid is sc_sid here, and if wrong, do ... something.      
+        
+        $dfspec=$lfilespec . '.plain';
+        $this->decryptFile($lfilespec,$dfspec);
+    }
     
     public function BDB($keybase,$host,$snappath,$lfilespec)
     {
@@ -388,6 +455,12 @@ if(defined('STDIN'))
                 throw new Exception('The BDB command requires 4 arguments: application key file base, taget host IP address or name, path to snapserver.php on the remote host, and local backup file name.');
             $sci=new ClaSnapClient();
             $sci->BDB($argv[2],$argv[3],$argv[4],$argv[5]);    
+            break;       
+        case 'BFL':
+            if($argc<5)
+                throw new Exception('The BFL command requires 4 arguments: application key file base, taget host IP address or name, path to snapserver.php on the remote host, and local backup file name.');
+            $sci=new ClaSnapClient();
+            $sci->BFL($argv[2],$argv[3],$argv[4],$argv[5]);    
             break;       
         case 'SUP':
             if($argc<4)
