@@ -16,6 +16,8 @@ The initial release of version 2.0 only has a PHP client/server pair, but I plan
 
 The protocol commands the client can send follow.  arguments in [] are optional and those in <> are required.  Possible server responses are also listed after each client command.  NOTE: The server may not respond for internal errors or for things that indicate a stupid client (and possibly an attack attempt).  If it responds in-protocol to an error, it will send back an ERR response, as noted below.
 
+IMPORTANT! The blank space character is used as a delimiter, and so no argument on a command can contain a space character.  To deal with this possibility a space might be necessary, all arguments are themselves base64 encoded.  The command string itself, (HLO, BYE, etc.) is not base64 encoded.
+
 ```
 HLO: hello -- used to setup a session.  Encrypted with setup key if SUP has not been issued yet, else encrypted with application key.
     HLO <SID> Encrypted with setup key if SUP has not been issued yet, else encrypted with application key.

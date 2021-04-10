@@ -146,9 +146,10 @@ class ClaSnapClient
     }
     private function processResponse($eblob,&$rcmd,&$rdata)
     {
-        $eparts=explode(',',$eblob);
-        $rcmd=$this->decryptString($eparts[0]);
-        $rdata=$this->decryptString($eparts[1]);
+        $pblob=$this->decryptString($eblob);
+        $pparts=explode(' ',$pblob);
+        $rcmd=$pparts[0];
+        $rdata=base64_decode($pparts[1]);
         return true;
     }
     public function HLO($host,$snappath)
@@ -156,7 +157,7 @@ class ClaSnapClient
         $rcmd='';
         $rdata='';
         $url='https://' . $host . '/' . $snappath . 'snapserver.php';
-        $args=array('');
+        $args=array();
         $res=$this->execCommand('HLO',$url,$args,true);  // HLO always starts a new session.
         if($res===false)
             echo "EEEE: HLO failed: $this->lastExecMsg \n";
@@ -410,16 +411,16 @@ class ClaSnapClient
             throw new Exception('Error initializing cURL');
         }
         $estr='';
+        $comstr=$cmd;
         if(!is_null($this->scsid))
-            $postArgs['sc_session']=$this->scsid;
-        
-        $postArgs['sc_command']=$cmd;
-        $pargs=array();
+            $comstr.=' ' . base64_encode($this->scsid);
+            
         foreach($postArgs as $k=>$v)
         {
-            $pargs[$k]=$this->encryptString($v);
-            //$ostring=$this->decryptString($pargs[$k],$this->scsetuppub); // if you want verify enc/dec.
+            $comstr.=' ' . base64_encode($v);
         }
+        $estr=$this->encryptString($comstr);
+        $pargs=array('snapcap'=>$estr);
         $opts=array
         (
             CURLOPT_POST=>true,
