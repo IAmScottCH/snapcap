@@ -16,7 +16,9 @@ The initial release of version 2.0 only has a PHP client/server pair, but I plan
 
 The protocol commands the client can send follow.  arguments in [] are optional and those in <> are required.  Possible server responses are also listed after each client command.  NOTE: The server may not respond for internal errors or for things that indicate a stupid client (and possibly an attack attempt).  If it responds in-protocol to an error, it will send back an ERR response, as noted below.
 
-IMPORTANT! The blank space character is used as a delimiter, and so no argument on a command can contain a space character.  To deal with this possibility a space might be necessary, all arguments are themselves base64 encoded.  The command string itself, (HLO, BYE, etc.) is not base64 encoded.
+IMPORTANT! The blank space character is used as a delimiter, and so no argument on a command can contain a space character.  To deal with this possibility a space might be necessary, all arguments are themselves base64 encoded.  The command string itself, (HLO, BYE, etc.) is not base64 encoded.  Here's a kind of pseudocode example of how it is packaged:
+
+`base64encode(encrypt(SUP base64encode(SID) base64encode(appkey)))`
 
 ```
 HLO: hello -- used to setup a session.  Encrypted with setup key if SUP has not been issued yet, else encrypted with application key.
@@ -51,5 +53,6 @@ Encrypted data is encrypted in 400 byte chunks, due to how PHP's implementation 
 That's all actually harder to explain than to do.  See encryptString(), decryptString(), and decryptFile() in snapclient.php for examples.  Also encryptFile() in snapserver.php.
 
 ##Note on PHP implementation##
-Really for web servers.  The command is sent in the POST var snapcap.
+
+Really for web servers.  The command is sent in the POST var named "snapcap".
 
