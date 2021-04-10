@@ -171,8 +171,7 @@ class ClaSnapServer
   
   public function identifyCommand()
   {
-    $ec=trim($this->postVars['command']);
-    $pc=$this->decryptArgument($ec);
+    $pc=trim($this->postVars['command']);
     $c=strtoupper(trim($pc));   
     switch($c)
     {
@@ -218,14 +217,14 @@ class ClaSnapServer
               header("HTTP/1.0 400 SC Session ID not provided");
               throw new Exception("Client did not provide a session id, but command was not HLO!");
           }
+          
           $this->scsid='sc_' . bin2hex(random_bytes(10));
           $_SESSION[$this->scsid]=array();
       
       }
       else
       {
-          $ec=trim($this->postVars['session']);
-          $pc=$this->decryptArgument($ec);
+          $pc=trim($this->postVars['session']);
           
           $this->scsid=$pc;
       }
@@ -233,7 +232,7 @@ class ClaSnapServer
       if(!isset($_SESSION[$this->scsid])) // will occur if the client sends the "wrong" session id.
       {
           header("HTTP/1.0 400 Invalid Session ID");
-          throw new Exception('Session initialization has failed for session id ' . $this->scsid);
+          throw new Exception('Session initialization has failed for session id: ' . $this->scsid . ' for command ' . $this->currentCommand);
       }
       //$this->sessionData=$_SESSION[$this->scsid];
       
@@ -247,10 +246,28 @@ class ClaSnapServer
           'command'=>'',
           'session'=>null,
       );
-      if(isset($_POST['sc_session']))
-          $this->postVars['session']=$_POST['sc_session'];
-      if(isset($_POST['sc_command']))
-          $this->postVars['command']=$_POST['sc_command'];
+      
+      if(!isset($_POST['snapcap']))
+      {
+          header("HTTP/1.0 403 SnapCap requires command string");
+          throw new Exception("snapcap not found in POST vars");
+      }
+      
+      // decrypt
+      $pstr=trim($this->decryptArgument($_POST['snapcap']));
+      
+      //split
+      $comparts=explode(' ',$pstr);
+      // get the command out.
+      $this->postVars['command']=$comparts[0];
+      
+      // see if there is a session id, and if so, extract that.
+      if(isset($comparts[1]))
+          $this->postVars['session']=base64_decode($comparts[1]);
+      
+      // normalize everything else
+      for($i=2;$i<count($comparts);++$i)
+          $this->postVars['args'][$i-2]=base64_decode($comparts[$i]);
       
       $this->identifyCommand();    
       $this->setSession();
@@ -272,11 +289,11 @@ class ClaSnapServer
               throw new Exception("I could not create SC's temp dir during SUP");
           }
       }
-      if(!isset($_POST['sc_appkey']))
+      if(!isset($this->postVars['args'][0]))
           throw new Exception("Client did not supply an application key for the SUP command");
-      $this->postVars['sc_appkey']=$_POST['sc_appkey'];
-      $pkey=$this->decryptArgument($this->postVars['sc_appkey']);
-      $this->appPubKey=openssl_pkey_get_public($pkey);
+      $this->postVars['sc_appkey']=$this->postVars['args'][0];
+      $pkey=$this->postVars['sc_appkey'];
+       $this->appPubKey=openssl_pkey_get_public($pkey);
       if($this->setupPubKey===false)
       {
           header("HTTP/1.0 400 Invalid application key");
@@ -432,42 +449,40 @@ class ClaSnapServer
   }
   public function BFL()
   {
-      if(!isset($_POST['sc_mode']))
-          throw new Exception("Client did not supply a mode for the BFL command");
-      $this->postVars['sc_mode']=$_POST['sc_mode'];
-      $bflmode=strtolower(trim($this->decryptArgument($this->postVars['sc_mode'])));
+      if(!isset($this->postVars['args'][0]))
+          throw new Exception("Client did not supply an mode for the BDB command");
+      $this->postVars['sc_mode']=$this->postVars['args'][0];
       // Several possible modes.  The args will say which:
       // mode=>wordpress implies snapserver was installed as a plugin and should verify wp-config.php is
       // where it things it ought to be, and then backup from there down.
       // mode=m**** implies maria or mysql, and more arguments: dbname,dbuser,dbpass,dbhost,dbport
-      switch($bflmode)
+      switch($this->postVars['sc_mode'])
       {
           case 'wordpress':
               $this->doWordPressFileBackup();
               break;
           default:
               header("HTTP/1.0 400 Invalid BFL mode");
-              throw new Exception('Invalid BFL mode: '. $bflmode);
+              throw new Exception('Invalid BFL mode: '. $this->postVars['sc_mode']);
               break;
       }     
   }
   public function BDB()
   {
-      if(!isset($_POST['sc_mode']))
+      if(!isset($this->postVars['args'][0]))
           throw new Exception("Client did not supply an mode for the BDB command");
-      $this->postVars['sc_mode']=$_POST['sc_mode'];
-      $bdbmode=strtolower(trim($this->decryptArgument($this->postVars['sc_mode'])));
+      $this->postVars['sc_mode']=$this->postVars['args'][0];
       // Several possible modes.  The args will say which:
       // mode=>wordpress implies snapserver was installed as a plugin and should find wp-config.php
       // mode=m**** implies maria or mysql, and more arguments: dbname,dbuser,dbpass,dbhost,dbport
-      switch($bdbmode)
+      switch($this->postVars['sc_mode'])
       {
           case 'wordpress':
               $this->doWordPressDBBackup();
               break;
           default:
               header("HTTP/1.0 400 Invalid BDB  mode");
-              throw new Exception('Invalid BDB mode: '. $bdbmode);
+              throw new Exception('Invalid BDB mode: '. $this->postVars['sc_mode']);
               break;
       }
   }
@@ -495,14 +510,13 @@ class ClaSnapServer
   public function emitResponse($cmd,$data)
   {
       $ekey=($this->setupMode?$this->setupPubKey:$this->appPubKey);
-      $ecmd=$this->encryptString($cmd,$ekey);
-      if(is_null($data))
-      {
-          echo $ecmd;
-          return;
-      }
-      $edata=$this->encryptString($data,$ekey);
-      echo $ecmd . ',' . $edata;
+      $presponse=$cmd;
+       if(!is_null($data))
+          $presponse.=' ' . base64_encode($data);
+      
+      
+      $edata=$this->encryptString($presponse,$ekey);
+      echo $edata;
   }
   public function doCommand()
   {
