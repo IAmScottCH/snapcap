@@ -8,7 +8,7 @@
 DEFINE('SC_APP_KEY_FILE','sc_app_key.pub');
 DEFINE('SC_SUP_KEY_FILE','sc_sup_key.pub');
 DEFINE('SC_LONG_TIME',600); // seconds. 10 minutes.  
-
+DEFINE('SC_TEMP_DIR',__DIR__ . DIRECTORY_SEPARATOR . "sctmp");
 class ClaSnapServer
 {
   private $setupPubKey;
@@ -103,6 +103,7 @@ class ClaSnapServer
       fclose($fsh);
       fclose($fth);
   }
+
   // have to encrypt in chunks
   // assumes a 4096 bit key
   // so can encrypt in 4096/8-11 = 501 byte chunks.  will use blocks of 400 bytes.
@@ -140,17 +141,20 @@ class ClaSnapServer
      }
      if(strlen($this->setupPubKey)==0)
      {
+         // Empty SUP key file, so I've already been set up before.  Let me try to load the application key.
+         $this->setupMode=false;
          $this->setupPubKey=null;
          $this->appPubKey=openssl_pkey_get_public('file://' . SC_APP_KEY_FILE);
          if($this->appPubKey===false)
          {
             header("HTTP/1.0 500 Key ring is empty");
-             throw new Exception('There are no keys available.  You will need to call a technician to help me.');
+            throw new Exception('There are no keys available.  You will need to call a technician to help me.');
          }
-         $this->setupMode=false;
      }
      else
      {
+         // SUP key is not empty, so I must not have yet been successfully set up.
+         $this->setupMode=true;    
          $this->appPubKey=null;
          $this->setupPubKey=openssl_pkey_get_public($this->setupPubKey);
          if($this->setupPubKey===false)
@@ -158,7 +162,6 @@ class ClaSnapServer
             header("HTTP/1.0 500 SUP key invalid");
             throw new Exception('I could not parse the setup key.');
          }
-         $this->setupMode=true;    
      }
      $this->currentCommand='NOP';
      $this->scsid=null;
@@ -255,7 +258,20 @@ class ClaSnapServer
     
   public function remoteSetup()
   {
-
+      // setupMode was set in the constructor.
+      if(!$this->setupMode)
+      {
+          header("HTTP/1.0 403 Invalid mode");
+          throw new Exception("SUP attempted after I have already been setup previously");
+      }
+      if(!file_exists(SC_TEMP_DIR))
+      {
+          if(mkdir(SC_TEMP_DIR,0770)===false)
+          {
+              header("HTTP/1.0 500 Could not create temp dir");
+              throw new Exception("I could not create SC's temp dir during SUP");
+          }
+      }
       if(!isset($_POST['sc_appkey']))
           throw new Exception("Client did not supply an application key for the SUP command");
       $this->postVars['sc_appkey']=$_POST['sc_appkey'];
@@ -266,8 +282,17 @@ class ClaSnapServer
           header("HTTP/1.0 400 Invalid application key");
           throw new Exception('I could not parse the application key provided by the client.');
       }
-      file_put_contents(SC_APP_KEY_FILE,$pkey);   
-      file_put_contents(SC_SUP_KEY_FILE,'');
+      if(file_put_contents(SC_APP_KEY_FILE,$pkey)===false)
+      {
+          header("HTTP/1.0 500 Failed storing application key");
+          throw new Exception('I could not parse the application key provided by the client.');
+      }
+      if(file_put_contents(SC_SUP_KEY_FILE,'')===false)
+      {
+          header("HTTP/1.0 500 Failed re-writing SUP key");
+          throw new Exception('I could not parse the application key provided by the client.');
+      }
+          
       $this->setupMode=false;
       $this->emitResponse('SUP',$this->scsid);
   }
@@ -303,6 +328,8 @@ class ClaSnapServer
      $this->emitFile($finfo['name'],$finfo['spec']);  // does a die()
    
   }
+  // TODO: at least the plain text temp file should be under SnapCap's directory, I think. I can't use tmpfile(), because I 
+  //       need a file name to give to mysqldump.
   private function doWordPressDBBackup()
   {
     // I get to assume I am a plugin.  So wp-config.php should be at:
@@ -321,8 +348,8 @@ class ClaSnapServer
     // 	mysqldump -a -n --single-transaction --no-autocommit -u"$DBUSER" -p"$DBPASS" -h"$DBHOST" -P"$DBPORT" "$DBNAME" > "$DBBKSPEC"
     //  exit code is 0 on success.
     $dbtempname= 'sc_' . bin2hex(random_bytes(6));
-    $dbtempspec='/tmp/' . $dbtempname;
-    $dbplainspec='/tmp/sc_' . bin2hex(random_bytes(6));
+    $dbtempspec=SC_TEMP_DIR . '/' . $dbtempname;
+    $dbplainspec=SC_TEMP_DIR . '/sc_' . bin2hex(random_bytes(6));
     $cmd="mysqldump -a -n --single-transaction --no-autocommit -u'" . DB_USER . "' -p'" . DB_PASSWORD . "' -h'" . DB_HOST . "' '" . DB_NAME . "' > $dbplainspec" ;          
     $cmdout='';
     $cmdec=1;
@@ -347,6 +374,8 @@ class ClaSnapServer
     
     
   }
+  // TODO: at least the plain text temp file should be under SnapCap's directory, I think.  I can't use tmpfile(), because I 
+  //       need a file name to give to tar.
   private function doWordPressFileBackup()
   {
     // I get to assume I am a plugin.  So wp-config.php should be at:
@@ -374,8 +403,8 @@ class ClaSnapServer
     
     //  exit code of tar is 0 on success.
     $filtempname= 'sc_' . bin2hex(random_bytes(6));
-    $filtempspec='/tmp/' . $filtempname;
-    $filplainspec='/tmp/sc_' . bin2hex(random_bytes(6));
+    $filtempspec=SC_TEMP_DIR . '/' . $filtempname;
+    $filplainspec=SC_TEMP_DIR . '/sc_' . bin2hex(random_bytes(6));
     
     $cmd="tar -czf '$filplainspec' .";          
     $cmdout='';
@@ -404,7 +433,7 @@ class ClaSnapServer
   public function BFL()
   {
       if(!isset($_POST['sc_mode']))
-          throw new Exception("Client did not supply an mode for the BFL command");
+          throw new Exception("Client did not supply a mode for the BFL command");
       $this->postVars['sc_mode']=$_POST['sc_mode'];
       $bflmode=strtolower(trim($this->decryptArgument($this->postVars['sc_mode'])));
       // Several possible modes.  The args will say which:
