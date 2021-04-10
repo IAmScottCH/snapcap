@@ -49,12 +49,5 @@ Encrypted data is encrypted in 400 byte chunks, due to how PHP's implementation 
 That's all actually harder to explain than to do.  See encryptString(), decryptString(), and decryptFile() in snapclient.php for examples.  Also encryptFile() in snapserver.php.
 
 ##Note on PHP implementation##
+Really for web servers.  The command is sent in the POST var snapcap.
 
-I kind of regret it, but the PHP server implementation of the protocol expects the command arguments as POST vars.  They keys are:
-```
-sc_appkey: application key
-sc_session: the SnapCap session ID
-sc_command: the SnapCap command
-sc_mode: the mode argument for the BFL and BDB commands.
-```
-Some day I will refactor it so that it only recieves one POST var, which is the full proper protocol command string with arguments.
