@@ -151,6 +151,7 @@ class ClaSnapServer
         case 'BDB':
         case 'BYE':
         case 'HLO':
+        case 'SND':
         case 'SUP':
             break;
             
@@ -237,10 +238,26 @@ class ClaSnapServer
   }
   public function BYE()
   {
+      if(isset($_SESSION[$this->scsid]['tempfile']))
+      {
+          @unlink($_SESSION[$this->scsid]['tempfile']['spec']);
+          unset($_SESSION[$this->scsid]['tempfile']);
+      }
       $this->emitResponse('BYE',$this->scsid);
       
   }
   
+  private function SND()
+  {
+     if(!isset($_SESSION[$this->scsid]['tempfile']))
+     {
+         $this->emitResponse('ERR',"There is no file send operation pending.");
+         return;
+     }
+     $finfo=$_SESSION[$this->scsid]['tempfile'];
+     $this->emitFile($finfo['name'],$finfo['spec']);  // does a die()
+   
+  }
   private function doWordPressDBBackup()
   {
     // I get to assume I am a plugin.  So wp-config.php should be at:
@@ -254,9 +271,9 @@ class ClaSnapServer
     
     // 	mysqldump -a -n --single-transaction --no-autocommit -u"$DBUSER" -p"$DBPASS" -h"$DBHOST" -P"$DBPORT" "$DBNAME" > "$DBBKSPEC"
     //  exit code is 0 on success.
-    $dbtempname= bin2hex(random_bytes(6));
+    $dbtempname= 'sc_' . bin2hex(random_bytes(6));
     $dbtempspec='/tmp/' . $dbtempname;
-    $dbplainspec='/tmp/' . bin2hex(random_bytes(6));
+    $dbplainspec='/tmp/sc_' . bin2hex(random_bytes(6));
     $cmd="mysqldump -a -n --single-transaction --no-autocommit -u'" . DB_USER . "' -p'" . DB_PASSWORD . "' -h'" . DB_HOST . "' '" . DB_NAME . "' > $dbplainspec" ;          
     $cmdout='';
     $cmdec=1;
@@ -272,12 +289,12 @@ class ClaSnapServer
     }
     
     $this->encryptFile($dbplainspec,$dbtempspec,$this->appPubKey);
-    $this->emitFile($dbtempname,$dbtempspec);
-    //$this->emitResponse('BDB',file_get_contents($dbtempspec));
-    //TODO: if you add the VFY protocol command, then this is a good place to generate the checksum.
-    
-    unlink($dbtempspec);
     unlink($dbplainspec);
+    $_SESSION[$this->scsid]['tempfile']=array("name"=>$dbtempname,"spec"=>$dbtempspec);
+    
+    $chksum=md5_file($dbtempspec);
+    $this->emitResponse('BDB',$chksum);
+
     
     
   }
@@ -314,7 +331,7 @@ class ClaSnapServer
     
     header('Content-Length: ' . $fsize);
     
-    readfile($fspec);  //TODO: if return code is false, ERR, if return code != $fsize, ERR.
+    readfile($fspec);  //If this fails, then the checksum verification at the client side will fail, so we're OK just cutting loose here.
     die();
     
   }
@@ -346,6 +363,9 @@ class ClaSnapServer
               break;
           case 'HLO':
               $this->HLO();
+              break;
+          case 'SND':
+              $this->SND();
               break;
           case 'SUP':
               $this->remoteSetup();

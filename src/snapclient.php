@@ -242,6 +242,7 @@ class ClaSnapClient
         echo "C-III: lfilespec: $lfilespec \n";
         $rcmd='';
         $rdata='';
+        $chksum='';
         $this->setupMode=false;
         $this->hostKeyBase=$keybase;
         $appkeyfile=$keybase . '.pem';
@@ -264,20 +265,34 @@ class ClaSnapClient
         //TODO: support more modes than just wordpress, and take the mode on the command line or something
         echo "CIIII: Sending BDB\n";
         $args=array('sc_mode'=>'wordpress');
-        $res=$this->execCommand('BDB',$url,$args,false,$lfilespec,300); //TODO: don't hardcode the timeout
-        if($res===false)
-            echo "EEEE: BDB failed: $this->lastExecMsg \n";
-        /*
+        
+        // First tell the server to create the backup
+        $res=$this->execCommand('BDB',$url,$args,false,null,300); //TODO: don't hardcode the timeout
+        
         $this->processResponse($res,$rcmd,$rdata);
         if($rcmd=='ERR')
-            echo "CEEEE: Server had an error: $rdata \n";
-        else
-        */
-        echo "CIIII: Received response data.\n";
-        //TODO: You need to do something to verify (a) the response is not just an ERR response and (b) it decrypts.
-        //      You COULD add another protocol command VFY, that would generate a checksum or something and ask the server
-        //      to verify the checksum is correct.
-        
+            echo "CEEEE: Server experienced an error making DB backup: $rdata \n";
+        else 
+        {
+            $chksum=$rdata;
+            echo "CIIII: The server's checksum is $chksum \n";
+            $res=$this->execCommand('SND',$url,$args,false,$lfilespec,300); //TODO: don't hardcode the timeout
+            if($res===false)
+                echo "EEEE: SND failed: $this->lastExecMsg \n";
+            else 
+            {
+                echo "CIIII: DB backup data received.  Verifying checksum.\n";
+                $mysum=md5_file($lfilespec);
+                echo "CIIII: My checksum is $mysum \n";
+                if($mysum!==$chksum)
+                {
+                    echo "CEEEE: Checksum verification failed!";
+                }
+                else 
+                    echo "CIIII: Checksum verification passed.";
+            }
+        }
+       
         echo "CIIII: Sending BYE\n";
         $bsid=$this->BYE($host,$snappath);
         //TODO: verify bsid is sc_sid here, and if wrong, do ... something.      
