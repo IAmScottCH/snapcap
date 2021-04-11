@@ -304,11 +304,7 @@ class ClaSnapClient
         if($bsid!==$this->scsid)
             echo "CWWWW: BYE SC SID from server seems wrong\n";
         
-        /* TODO: make this a utility command callable from the command line.
-        $dfspec=$lfilespec . '.plain';
-        echo "CIIII: Decrypting file to $dfspec \n";
-        $this->decryptFile($lfilespec,$dfspec);
-        */
+
     }
     
     public function BDB($keybase,$host,$snappath,$lfilespec)
@@ -382,6 +378,22 @@ class ClaSnapClient
         
      }
 
+     public function decryptLocalFile($encfile, $plnfile, $keybase)
+     {
+        $this->setupMode=false;
+        $this->hostKeyBase=$keybase;
+        $appkeyfile=$keybase . '.pem';
+        $this->hostkey=openssl_pkey_get_private('file://' . $appkeyfile);
+        if($this->hostkey===false)
+            throw new Exception('I could not parse the application key.');
+ 
+        // this will potentially take a long time, so:
+        if(set_time_limit(0)===false)
+            echo "CWWWW: WARNING: I could not set an infinite time limit for the script execution\n";
+        echo "CIIII: Decrypting $encfile to $plnfile \n";
+        $this->decryptFile($encfile,$plnfile);
+               
+     }
     // $timeout is in seconds.  It's provided as an optional value so that when a backup command is run, it 
     // can be extended to 300 seconds or more.
     // $postArgs is passed as-is as the cURL post fields array, but with the following added in:
@@ -488,8 +500,19 @@ if(defined('STDIN'))
             $snappath=$argv[4];
             $sci->SUP($keyfilespec,$targetHost,$snappath);
             break;
+        // utility commands
+        case 'DECRYPTFILE':
+            if($argc<4)
+                throw new Exception('The decryptfile command requires 3 arguments: the application key file base, the path/name of encrypted and the path/name where you want the decrypted file');
+            $sci=new ClaSnapClient();
+            $keybase=$argv[2];
+            $encfile=$argv[3];
+            $plnfile=$argv[4];
+            $sci->decryptLocalFile($encfile,$plnfile,$keybase);
+            break;
+            
         default:
-            throw new Exception('Invalid command.');
+            throw new Exception('Invalid command: ' . $command . '.');
             break;
     }
     

@@ -69,7 +69,7 @@ Encrypted data is encrypted in 400 byte chunks, due to how PHP's implementation 
 
 That's all actually harder to explain than to do.  See encryptString(), decryptString(), and decryptFile() in snapclient.php for examples.  Also encryptFile() in snapserver.php.
 
-## Note on PHP implementation##
+## Note on PHP implementation
 
 Really for web servers.  The command is sent in the POST var named "snapcap".
 
