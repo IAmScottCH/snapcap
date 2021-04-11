@@ -423,7 +423,7 @@ class ClaSnapServer
     $filtempspec=SC_TEMP_DIR . '/' . $filtempname;
     $filplainspec=SC_TEMP_DIR . '/sc_' . bin2hex(random_bytes(6));
     
-    $cmd="tar --exclude='" . __DIR__ . "' -czf '$filplainspec' .";          
+    $cmd="tar --exclude='wp-content/plugins/snapcap' -czf '$filplainspec' .";          
     $cmdout='';
     $cmdec=1;
     if(exec($cmd,$cmdout,$cmdec)===false)
