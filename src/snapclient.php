@@ -292,10 +292,10 @@ class ClaSnapClient
                 echo "CIIII: My checksum is $mysum \n";
                 if($mysum!==$chksum)
                 {
-                    echo "CEEEE: Checksum verification failed!";
+                    echo "CEEEE: Checksum verification failed!\n";
                 }
                 else 
-                    echo "CIIII: Checksum verification passed.";
+                    echo "CIIII: Checksum verification passed.\n";
             }
         }
        
@@ -304,8 +304,11 @@ class ClaSnapClient
         if($bsid!==$this->scsid)
             echo "CWWWW: BYE SC SID from server seems wrong\n";
         
+        /* TODO: make this a utility command callable from the command line.
         $dfspec=$lfilespec . '.plain';
+        echo "CIIII: Decrypting file to $dfspec \n";
         $this->decryptFile($lfilespec,$dfspec);
+        */
     }
     
     public function BDB($keybase,$host,$snappath,$lfilespec)
@@ -365,10 +368,10 @@ class ClaSnapClient
                 echo "CIIII: My checksum is $mysum \n";
                 if($mysum!==$chksum)
                 {
-                    echo "CEEEE: Checksum verification failed!";
+                    echo "CEEEE: Checksum verification failed!\n";
                 }
                 else 
-                    echo "CIIII: Checksum verification passed.";
+                    echo "CIIII: Checksum verification passed.\n";
             }
         }
        
@@ -377,9 +380,7 @@ class ClaSnapClient
         if($bsid!==$this->scsid)
             echo "CWWWW: BYE SC SID from server seems wrong\n";
         
-        $dfspec=$lfilespec . '.plain';
-        $this->decryptFile($lfilespec,$dfspec);
-    }
+     }
 
     // $timeout is in seconds.  It's provided as an optional value so that when a backup command is run, it 
     // can be extended to 300 seconds or more.
