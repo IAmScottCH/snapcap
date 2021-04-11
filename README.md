@@ -47,7 +47,8 @@ Where the SID is provided the client or server may verify it is the correct SID 
 
 *NOTE: SnapCap must be able to create subdirectory (and files in it) under its own directory.  Alternatively, you may pre-create a subdirectory called "sctmp" that it has r/w permissions to under its directory.  By that, I of course mean the user under which SnapCap is executing must effectively have those abilities/permissions.*
 
-##About the WordPress plugin file
+## About the WordPress plugin file
+
 I wanted to be able to get SnapCap in place and working for WordPress installs with **only** admin access on the WordPress Dashboard -- that is, without having to have FTP or SSH access to the hosting system.  Since SnapCap is written to be independent of any application, all I really need to get it going is the setup public key and snapserver.php on the target system.  So, all this plugin file does is provide the means for WordPress to see a plugin.  If you zip up the snapcap directory in the src folder, and then install the zip as a new plugin via the WordPress Dashboard, you can run snapclient.php with the SUP command and voila! You're up and running with SnapCap.
 
 Then if you ever need to remove it, you can "Delete" it from the Plugins section of the WordPress Dashboard, and all its files will be gone (it doesn't use any database tables or anything).
@@ -62,12 +63,13 @@ php snapclient.php BDB /home/feran/mykeys/sc_example.com example.com wp-content/
 php snapclient.php BFL /home/feran/mykeys/sc_example.com example.com wp-content/plugins/snapcap /mnt/phatboy/example.com/BFL_2021-04-10.bin
 ```
 
-##Note on format of encrypted data
+## Note on format of encrypted data
+
 Encrypted data is encrypted in 400 byte chunks, due to how PHP's implementation of openssl_private_encrypt() (and openssl_public_encrypt(), for that matter) works.  I know that is specific to a run-time/platform, but it is the first I wrote version 2.0 for, so decided to just go with it.  Anyway, the chunks are encrypted and then base64 encoded.  Any message, therefore, greater than 400 bytes will have multiple chunks.  The chunks are separated by commas, since a comma is not a valid character in a base64 encoding.  Then the whole resulting blob is base64 encoded again (to get commas out of the mix for transit). Thus, to decrypt a message of more than one chunk, you first need to decrypt each chunk up to but not including the next comma, and reassemble the whole thing.
 
 That's all actually harder to explain than to do.  See encryptString(), decryptString(), and decryptFile() in snapclient.php for examples.  Also encryptFile() in snapserver.php.
 
-##Note on PHP implementation##
+## Note on PHP implementation##
 
 Really for web servers.  The command is sent in the POST var named "snapcap".
 
