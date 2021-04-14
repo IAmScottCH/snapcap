@@ -65,9 +65,11 @@ php snapclient.php BFL /home/feran/mykeys/sc_example.com example.com wp-content/
 
 ## Note on format of encrypted data
 
-Encrypted data is encrypted in 400 byte chunks, due to how PHP's implementation of openssl_private_encrypt() (and openssl_public_encrypt(), for that matter) works.  I know that is specific to a run-time/platform, but it is the first I wrote version 2.0 for, so decided to just go with it.  Anyway, the chunks are encrypted and then base64 encoded.  Any message, therefore, greater than 400 bytes will have multiple chunks.  The chunks are separated by commas, since a comma is not a valid character in a base64 encoding.  Then the whole resulting blob is base64 encoded again (to get commas out of the mix for transit). Thus, to decrypt a message of more than one chunk, you first need to decrypt each chunk up to but not including the next comma, and reassemble the whole thing.
+Encrypted data is encrypted in 400 byte chunks, due to how PHP's implementation of openssl_private_encrypt() (and openssl_public_encrypt(), for that matter) works.  I know that is specific to a run-time/platform, but it is the first I wrote version 2.0 for, so decided to just go with it.  On the other hand, I understand why -- the data to encrypt has to be shorter in bits than the key length.  Anyway, the chunks are encrypted and then base64 encoded.  Any message, therefore, greater than 400 bytes will have multiple chunks.  The chunks are separated by commas, since a comma is not a valid character in a base64 encoding.  Then the whole resulting blob is base64 encoded again (to get commas out of the mix for transit). Thus, to decrypt a message of more than one chunk, you first need to decrypt each chunk up to but not including the next comma, and reassemble the whole thing.  I did it that way so the decryption algorithm doesn't have to know/figure out anything about the key size and how to chunk the data coming from the file for decryption.
 
 That's all actually harder to explain than to do.  See encryptString(), decryptString(), and decryptFile() in snapclient.php for examples.  Also encryptFile() in snapserver.php.
+
+There are different ways of handling all this, and certainly I could probably come up with better ones, but for this application, this is fine for now.
 
 ## Note on PHP implementation
 
