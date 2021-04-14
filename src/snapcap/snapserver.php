@@ -1,6 +1,27 @@
 <?php 
 
 /*
+ * SnapCap Version 2.0.0
+ * 
+ * Application file and database backup utility.
+ * SnapCap server PHP implementation.
+ * 
+ * Copyright 2021 Scott Hammel's:       
+ *                  
+ *                      A A  
+ *                     aa aa
+ *                    ppp ppp         Primal
+ *                A  pppp pppp  A 
+ *               aa  pppp pppp  aa 
+ *              pPPp  PpP PpP  pPPp   Apparatus
+ *              pppp           pppp 
+ *              PppP  wwWWWww  PppP 
+ *                   wwwwwwwww        Workshop
+ *                 wwwwwwWwwwwww
+ *                wwwwwwwwwwwwwww   
+ *                 WwwwW   WwwwW  
+ *
+ * 
  * MOST IMPORTANT NOTE: Exception messages must be read in a sultry, female, robot voice.  Thank you.
  */
 
@@ -33,7 +54,7 @@ class ClaSnapServer
           if(!openssl_public_decrypt($dchunk,$pchunk,$ekey))
           {
               header("HTTP/1.0 500 DA failed");
-              throw new Exception('I could not decrypt one of the client chunks.');
+              throw new Exception('A fragment of the client message could not be decrypted');
           }
           $rstr.=$pchunk;
       }
@@ -47,14 +68,14 @@ class ClaSnapServer
       if($fsh===false)
       {
           header("HTTP/1.0 500 Source file unreadable");
-          throw new Exception("Could not open source file for encryption");
+          throw new Exception("Source file could not be opened for encryption");
       }
       $fth=fopen($tarfile,"wb");
       if($fth===false)
       {
           fclose($fsh);
           header("HTTP/1.0 500 Target file unwritable");
-          throw new Exception("Could not open target file for encryption");
+          throw new Exception("Target file could not be opened for receiving encrypted data");
       }
       
       $fw=true;
@@ -66,7 +87,7 @@ class ClaSnapServer
             fclose($fsh);
             fclose($fth);
             header("HTTP/1.0 500 Source file read error");
-            throw new Exception("Error encrypting file during read");
+            throw new Exception("Data for encryption could not be read");
         }
         try 
         {
@@ -85,7 +106,7 @@ class ClaSnapServer
                 fclose($fsh);
                 fclose($fth);
                 header("HTTP/1.0 500 Target file delimiter write error");
-                throw new Exception("Error encrypting file while writing separator");
+                throw new Exception("Separator could not written while encrypting the file");
             }
         }
         if(fwrite($fth,$estr)===false)
@@ -93,7 +114,7 @@ class ClaSnapServer
             fclose($fsh);
             fclose($fth);
             header("HTTP/1.0 500 Target file write error");
-            throw new Exception("Error encrypting file during write");
+            throw new Exception("Encrypted data could not be written");
         }
         $fw=false;
       }
@@ -120,7 +141,7 @@ class ClaSnapServer
           if(!openssl_public_encrypt($chunk,$echunk,$ekey))
           {
               header("HTTP/1.0 500 ES failed");
-              throw new Exception("I could not encrypt a chunk of your string");
+              throw new Exception("Error encountered while encrypting a fragment of your data");
           }
           $echunks[]=base64_encode($echunk);
       }
@@ -137,7 +158,7 @@ class ClaSnapServer
      if($this->setupPubKey===false)
      {
          header("HTTP/1.0 500 SUP key unreadable");
-         throw new Exception('I could not read the setup key file.');
+         throw new Exception('Setup key file could not read');
      }
      if(strlen($this->setupPubKey)==0)
      {
@@ -148,7 +169,7 @@ class ClaSnapServer
          if($this->appPubKey===false)
          {
             header("HTTP/1.0 500 Key ring is empty");
-            throw new Exception('There are no keys available.  You will need to call a technician to help me.');
+            throw new Exception('There are no keys available.  Please contact a technician.');
          }
      }
      else
@@ -160,7 +181,7 @@ class ClaSnapServer
          if($this->setupPubKey===false)
          {
             header("HTTP/1.0 500 SUP key invalid");
-            throw new Exception('I could not parse the setup key.');
+            throw new Exception('The setup key could not be parsed');
          }
      }
      $this->currentCommand='NOP';
@@ -215,7 +236,7 @@ class ClaSnapServer
           if($this->currentCommand!=='HLO')  // null sessions from the client are only valid for HLO commands.
           {
               header("HTTP/1.0 400 SC Session ID not provided");
-              throw new Exception("Client did not provide a session id, but command was not HLO!");
+              throw new Exception("Client did not provide a session id, but command was not HLO.  This is protocol abuse.");
           }
           
           $this->scsid='sc_' . bin2hex(random_bytes(10));
@@ -250,7 +271,7 @@ class ClaSnapServer
       if(!isset($_POST['snapcap']))
       {
           header("HTTP/1.0 403 SnapCap requires command string");
-          throw new Exception("snapcap not found in POST vars");
+          throw new Exception("The snapcap field was not found in POST vars");
       }
       
       // decrypt

@@ -1,6 +1,27 @@
 <?php
 
 /*
+ *
+ * SnapCap Version 2.0.0
+ * 
+ * Application file and database backup utility.
+ * SnapCap client PHP CLI implementation.
+ * 
+ * Copyright 2021 Scott Hammel's
+ *                         
+ *                      A A  
+ *                     aa aa
+ *                    ppp ppp         Primal
+ *                A  pppp pppp  A 
+ *               aa  pppp pppp  aa 
+ *              pPPp  PpP PpP  pPPp   Apparatus
+ *              pppp           pppp 
+ *              PppP  wwWWWww  PppP 
+ *                   wwwwwwwww        Workshop
+ *                 wwwwwwWwwwwww
+ *                wwwwwwwwwwwwwww   
+ *                 WwwwW   WwwwW  
+ * 
  * MOST IMPORTANT NOTE: Exception messages must be read in a sultry, female, robot voice.  Thank you.
  * 
  * Sample sequence for setup (in reality, the whole sequence is handled by SUP, because there is a key change):
