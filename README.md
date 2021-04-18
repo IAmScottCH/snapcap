@@ -47,6 +47,14 @@ Where the SID is provided the client or server may verify it is the correct SID 
 
 *NOTE: SnapCap must be able to create subdirectory (and files in it) under its own directory.  Alternatively, you may pre-create a subdirectory called "sctmp" that it has r/w permissions to under its directory.  By that, I of course mean the user under which SnapCap is executing must effectively have those abilities/permissions.*
 
+## SnapCap client exit codes
+
+The SnapCap clients exit with a status code indicating success or severity of failure, for use in automated scripts and stuff for notifications and whatnot.
+
+- 0: success. No anamolies detected during execution.
+- 1: warning. ... weird things are happening.... Processing **should** continue after a warning.
+- 2: error. Danger, Will Robinson!  Processing usually exits immediately upon encountering an error condition.
+
 ## About the WordPress plugin file
 
 I wanted to be able to get SnapCap in place and working for WordPress installs with **only** admin access on the WordPress Dashboard -- that is, without having to have FTP or SSH access to the hosting system.  Since SnapCap is written to be independent of any application, all I really need to get it going is the setup public key and snapserver.php on the target system.  So, all this plugin file does is provide the means for WordPress to see a plugin.  If you zip up the snapcap directory in the src folder, and then install the zip as a new plugin via the WordPress Dashboard, you can run snapclient.php with the SUP command and voila! You're up and running with SnapCap.

@@ -6,7 +6,7 @@
  * Application file and database backup utility.
  * SnapCap server PHP implementation.
  * 
- * Copyright 2021 Scott Hammel's:       
+ * Copyright (c) 2021 Primal Apparatus Workshop     
  *                  
  *                      A A  
  *                     aa aa
