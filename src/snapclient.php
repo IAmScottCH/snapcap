@@ -7,7 +7,7 @@
  * Application file and database backup utility.
  * SnapCap client PHP CLI implementation.
  * 
- * Copyright 2021 Scott Hammel's
+ * Copyright (c) 2021, Primal Apparatus Workshop
  *                         
  *                      A A  
  *                     aa aa
@@ -31,8 +31,10 @@
  * php -f snapclient.php BYE localhost
  */
 
-DEFINE('SC_SETUP_KEY','/home/scott/.ssh/scsetup.pem');
-DEFINE('SC_SETUP_PUB_KEY','/home/scott/.ssh/scsetup.pub');
+DEFINE('SC_SETUP_KEY','/home/lain/bin/snapcap/keys/scsetup.pem');
+DEFINE('SC_SETUP_PUB_KEY','/home/lain/bin/snapcap/keys/scsetup.pub');
+DEFINE('SC_SEVERITY_ERR',2);
+DEFINE('SC_SEVERITY_WRN',1);
 
 class ClaSnapClient
 {
@@ -62,10 +64,10 @@ class ClaSnapClient
        
         $this->scsetupkey=openssl_pkey_get_private('file://' . SC_SETUP_KEY);
         if($this->scsetupkey===false)
-            throw new Exception('I could not parse the setup key.');
+            throw new Exception('I could not parse the setup key.',SC_SEVERITY_ERR);
         $this->scsetuppub=openssl_pkey_get_public('file://' . SC_SETUP_PUB_KEY);
         if($this->scsetuppub===false)
-            throw new Exception('I could not parse the setup public key.');
+            throw new Exception('I could not parse the setup public key.',SC_SEVERITY_ERR);
                 
     }
     private function decryptFile($efile,$pfile)
@@ -73,12 +75,12 @@ class ClaSnapClient
       $fsize=filesize($efile);
       $fsh=fopen($efile,"rb");
       if($fsh===false)
-          throw new Exception("Could not open source file for decryption");
+          throw new Exception("Could not open source file for decryption",SC_SEVERITY_ERR);
       $fth=fopen($pfile,"wb");
       if($fth===false)
       {
           fclose($fsh);
-          throw new Exception("Could not open target file for decryption");
+          throw new Exception("Could not open target file for decryption",SC_SEVERITY_ERR);
       }
       
       $fw=true;
@@ -91,7 +93,7 @@ class ClaSnapClient
         {
             fclose($fsh);
             fclose($fth);
-            throw new Exception("Error decrypting file during read");
+            throw new Exception("Error decrypting file during read",SC_SEVERITY_ERR);
         }
         try 
         {
@@ -109,7 +111,7 @@ class ClaSnapClient
             {
                 fclose($fsh);
                 fclose($fth);
-                throw new Exception("Error decrypting file while writing separator");
+                throw new Exception("Error decrypting file while writing separator",SC_SEVERITY_ERR);
             }
             $fw=false;
         }
@@ -117,7 +119,7 @@ class ClaSnapClient
         {
             fclose($fsh);
             fclose($fth);
-            throw new Exception("Error decrypting file during write");
+            throw new Exception("Error decrypting file during write",SC_SEVERITY_ERR);
         }
       }
       
@@ -139,7 +141,7 @@ class ClaSnapClient
             
             $pchunk='';
             if(!openssl_private_decrypt(base64_decode($chunk),$pchunk,$ekey))
-                throw new Exception('I could not decrypt one of the server chunks.');
+                throw new Exception('I could not decrypt one of the server chunks.',SC_SEVERITY_ERR);
                 $rstr.=$pchunk;
         }
         return $rstr;
@@ -159,7 +161,7 @@ class ClaSnapClient
         {
             $echunk='';
             if(!openssl_private_encrypt($chunk,$echunk,$ekey))
-                throw new Exception("I could not encrypt a chunk of your string");
+                throw new Exception("I could not encrypt a chunk of your string",SC_SEVERITY_ERR);
                 $echunks[]=base64_encode($echunk);
         }
         $estring=implode($echunks,',');
@@ -181,10 +183,10 @@ class ClaSnapClient
         $args=array();
         $res=$this->execCommand('HLO',$url,$args,true);  // HLO always starts a new session.
         if($res===false)
-            echo "EEEE: HLO failed: $this->lastExecMsg \n";
+           throw new Exception("EEEE: HLO failed: $this->lastExecMsg \n",SC_SEVERITY_ERR);
         $this->processResponse($res,$rcmd,$rdata);
         if($rcmd!=='HLO')
-            throw new Exception('Server replied with invalid response command: ' . $rcmd . "\n");
+            throw new Exception('Server replied with invalid response command: ' . $rcmd . "\n",SC_SEVERITY_ERR);
         $this->scsid=$rdata;
         echo "CIIII: Received response data: $rdata and using it to set the session id\n";
     }
@@ -197,10 +199,10 @@ class ClaSnapClient
         $args=array('');
         $res=$this->execCommand('BYE',$url,$args);
         if($res===false)
-            echo "EEEE: BYE failed: $this->lastExecMsg \n";
+            throw new Exception("EEEE: BYE failed: $this->lastExecMsg \n",SC_SEVERITY_ERR);
         $this->processResponse($res,$rcmd,$rdata);
         if($rcmd!=='BYE')
-            throw new Exception('Server replied with invalid response command: ' . $rcmd . "\n");
+            throw new Exception('Server replied with invalid response command: ' . $rcmd . "\n",SC_SEVERITY_ERR);
         echo "CIIII: Received response data: $rdata\n";
         return $rdata;
     }
@@ -214,7 +216,7 @@ class ClaSnapClient
         $prvkeyfile=$keybase . '.pem';
         $appprvkey=openssl_pkey_get_private('file://' . $prvkeyfile);
         if($appprvkey===false)
-            throw new Exception('I could not parse the application key from ' . $prvkeyfile);
+            throw new Exception('I could not parse the application key from ' . $prvkeyfile,SC_SEVERITY_ERR);
             
         trim($snappath);
         if($snappath[strlen($snappath)-1]!=='/')
@@ -229,7 +231,7 @@ class ClaSnapClient
         if($appkey===false)
         {
             $this->setupMode=false;
-            throw new Exception('I could not read the contents of the application key file.');
+            throw new Exception('I could not read the contents of the application key file.',SC_SEVERITY_ERR);
         }
         
         echo "CIIII: Sending HLO\n";
@@ -240,21 +242,23 @@ class ClaSnapClient
         $args=array('sc_appkey'=>$appkey);
         $res=$this->execCommand('SUP',$url,$args);
         if($res===false)
-            echo "EEEE: SUP failed: $this->lastExecMsg \n";
+            throw new Exception("EEEE: SUP failed: $this->lastExecMsg \n",SC_SEVERITY_ERR);
         $this->setupMode=false; // the server should have changed keys now.
         $this->hostkey=$appprvkey;
         
         $this->processResponse($res,$rcmd,$rdata);
         echo "CIIII: Received response data: $rdata \n";
+        $exitWarn=false;
          if($rdata!==$this->scsid)
-            echo "CWWWW: SUP SC SID from server seems wrong\n";
-        
+           $exitWarn="SUP SC SID from server seems wrong\n";
         
         echo "CIIII: Sending BYE\n";
         $bsid=$this->BYE($host,$snappath);
         if($bsid!==$this->scsid)
-            echo "CWWWW: BYE SC SID from server seems wrong\n";
+            $exitWarn="BYE SC SID from server seems wrong\n";
         
+        if($exitWarn!==false)
+            throw new Exception($exitWarn,SC_SEVERITY_WRN);
          
     }
     public function BFL($keybase,$host,$snappath,$lfilespec)
@@ -272,7 +276,7 @@ class ClaSnapClient
         $appkeyfile=$keybase . '.pem';
         $this->hostkey=openssl_pkey_get_private('file://' . $appkeyfile);
         if($this->hostkey===false)
-            throw new Exception('I could not parse the application key.');
+            throw new Exception('I could not parse the application key.',SC_SEVERITY_ERR);
             
         // this will potentially take the server a long time, so:
         if(set_time_limit(0)===false)
@@ -298,14 +302,14 @@ class ClaSnapClient
         
         $this->processResponse($res,$rcmd,$rdata);
         if($rcmd=='ERR')
-            echo "CEEEE: Server experienced an error making file backup: $rdata \n";
+            throw new Exception("Server experienced an error making file backup: $rdata \n",SC_SEVERITY_ERR);
         else 
         {
             $chksum=$rdata;
             echo "CIIII: The server's checksum is $chksum \n";
             $res=$this->execCommand('SND',$url,$args,false,$lfilespec,300); //TODO: don't hardcode the timeout
             if($res===false)
-                echo "EEEE: SND failed: $this->lastExecMsg \n";
+                throw new Exception("SND failed: $this->lastExecMsg \n",SC_SEVERITY_ERR);
             else 
             {
                 echo "CIIII: File backup data received.  Verifying checksum.\n";
@@ -313,7 +317,7 @@ class ClaSnapClient
                 echo "CIIII: My checksum is $mysum \n";
                 if($mysum!==$chksum)
                 {
-                    echo "CEEEE: Checksum verification failed!\n";
+                    throw new Exception("Checksum verification failed!\n",SC_SEVERITY_ERR);
                 }
                 else 
                     echo "CIIII: Checksum verification passed.\n";
@@ -323,7 +327,7 @@ class ClaSnapClient
         echo "CIIII: Sending BYE\n";
         $bsid=$this->BYE($host,$snappath);
         if($bsid!==$this->scsid)
-            echo "CWWWW: BYE SC SID from server seems wrong\n";
+            throw new Exception("BYE SC SID from server seems wrong\n",SC_SEVERITY_WRN);
         
 
     }
@@ -343,7 +347,7 @@ class ClaSnapClient
         $appkeyfile=$keybase . '.pem';
         $this->hostkey=openssl_pkey_get_private('file://' . $appkeyfile);
         if($this->hostkey===false)
-            throw new Exception('I could not parse the application key.');
+            throw new Exception('I could not parse the application key.',SC_SEVERITY_ERR);
  
         // this will potentially take the server a long time, so:
         if(set_time_limit(0)===false)
@@ -370,14 +374,16 @@ class ClaSnapClient
         
         $this->processResponse($res,$rcmd,$rdata);
         if($rcmd=='ERR')
-            echo "CEEEE: Server experienced an error making DB backup: $rdata \n";
+        {
+             throw new Exception("Server experienced an error making DB backup: $rdata",SC_SEVERITY_ERR);
+        }
         else 
         {
             $chksum=$rdata;
             echo "CIIII: The server's checksum is $chksum \n";
             $res=$this->execCommand('SND',$url,$args,false,$lfilespec,300); //TODO: don't hardcode the timeout
             if($res===false)
-                echo "CEEEE: SND failed: $this->lastExecMsg \n";
+                throw new Exception("SND failed: $this->lastExecMsg \n",SC_SEVERITY_ERR);
             else 
             {
                 echo "CIIII: DB backup data received.  Verifying checksum.\n";
@@ -385,7 +391,7 @@ class ClaSnapClient
                 echo "CIIII: My checksum is $mysum \n";
                 if($mysum!==$chksum)
                 {
-                    echo "CEEEE: Checksum verification failed!\n";
+                    throw new Exception("Checksum verification failed!\n",SC_SEVERITY_ERR);
                 }
                 else 
                     echo "CIIII: Checksum verification passed.\n";
@@ -395,7 +401,7 @@ class ClaSnapClient
         echo "CIIII: Sending BYE\n";
         $bsid=$this->BYE($host,$snappath);
         if($bsid!==$this->scsid)
-            echo "CWWWW: BYE SC SID from server seems wrong\n";
+           throw new Exception("BYE SC SID from server seems wrong\n",SC_SEVERITY_WRN);
         
      }
 
@@ -406,7 +412,7 @@ class ClaSnapClient
         $appkeyfile=$keybase . '.pem';
         $this->hostkey=openssl_pkey_get_private('file://' . $appkeyfile);
         if($this->hostkey===false)
-            throw new Exception('I could not parse the application key.');
+            throw new Exception('I could not parse the application key.',SC_SEVERITY_ERR);
  
         // this will potentially take a long time, so:
         if(set_time_limit(0)===false)
@@ -435,14 +441,14 @@ class ClaSnapClient
         {
             $fh=fopen($intofile,"wb");
             if($fh===false)
-                throw new Exception("I cannot open file $intofile for writing");
+                throw new Exception("I cannot open file $intofile for writing",SC_SEVERITY_ERR);
         }
         $ch=curl_init($url);
         if($ch===false)
         {
             if($doingFile)
                 fclose($fh);
-            throw new Exception('Error initializing cURL');
+            throw new Exception('Error initializing cURL',SC_SEVERITY_ERR);
         }
         $estr='';
         $comstr=$cmd;
@@ -494,27 +500,30 @@ class ClaSnapClient
 // command line mode operation
 if(defined('STDIN'))
 {
+    try 
+    {
+        
     echo "CIIII: $argc arguments were provided\n";
     if($argc<2)
-        throw new Exception('Please enter a command with your request.');
+        throw new Exception('Please enter a command with your request.',SC_SEVERITY_ERR);
     $command=strtoupper(trim($argv[1]));
     switch($command)
     {
         case 'BDB':
             if($argc<5)
-                throw new Exception('The BDB command requires 4 arguments: application key file base, taget host IP address or name, path to snapserver.php on the remote host, and local backup file name.');
+                throw new Exception('The BDB command requires 4 arguments: application key file base, taget host IP address or name, path to snapserver.php on the remote host, and local backup file name.',SC_SEVERITY_ERR);
             $sci=new ClaSnapClient();
             $sci->BDB($argv[2],$argv[3],$argv[4],$argv[5]);    
             break;       
         case 'BFL':
             if($argc<5)
-                throw new Exception('The BFL command requires 4 arguments: application key file base, taget host IP address or name, path to snapserver.php on the remote host, and local backup file name.');
+                throw new Exception('The BFL command requires 4 arguments: application key file base, taget host IP address or name, path to snapserver.php on the remote host, and local backup file name.',SC_SEVERITY_ERR);
             $sci=new ClaSnapClient();
             $sci->BFL($argv[2],$argv[3],$argv[4],$argv[5]);    
             break;       
         case 'SUP':
             if($argc<4)
-                throw new Exception('The SUP command requires 3 arguments: public key file base, target host IP address or name, and path to snapserver.php on the remote host.');
+                throw new Exception('The SUP command requires 3 arguments: public key file base, target host IP address or name, and path to snapserver.php on the remote host.',SC_SEVERITY_ERR);
             $sci=new ClaSnapClient();
             $keyfilespec=$argv[2];
             $targetHost=$argv[3];
@@ -524,7 +533,7 @@ if(defined('STDIN'))
         // utility commands
         case 'DECRYPTFILE':
             if($argc<4)
-                throw new Exception('The decryptfile command requires 3 arguments: the application key file base, the path/name of encrypted and the path/name where you want the decrypted file');
+                throw new Exception('The decryptfile command requires 3 arguments: the application key file base, the path/name of encrypted and the path/name where you want the decrypted file',SC_SEVERITY_ERR);
             $sci=new ClaSnapClient();
             $keybase=$argv[2];
             $encfile=$argv[3];
@@ -533,9 +542,29 @@ if(defined('STDIN'))
             break;
             
         default:
-            throw new Exception('Invalid command: ' . $command . '.');
+            throw new Exception('Invalid command: ' . $command . '.',SC_SEVERITY_ERR);
             break;
     }
+    
+    } catch (Exception $e) 
+    {
+        if($e->getCode()==SC_SEVERITY_ERR)
+        {
+            echo "CEEEE: " . $e->getMessage() . "\n";
+            exit(SC_SEVERITY_ERR);
+        }
+        else if($e->getCode()==SC_SEVERITY_WRN)
+        {
+            echo "CEEEE: " . $e->getMessage() . "\n";
+            exit(SC_SEVERITY_WRN);
+        }
+        
+        echo "CEEEE: Unexpected exception (" . $e->getCode() . "): " . $e->getMessage() . "\n";
+        exit(SC_SEVERITY_ERR);
+        
+    }
+ 
+    exit(0); // sucess
     
 }
 ?>
