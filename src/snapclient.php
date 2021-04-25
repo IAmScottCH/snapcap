@@ -31,8 +31,20 @@
  * php -f snapclient.php BYE localhost
  */
 
-DEFINE('SC_SETUP_KEY','/home/lain/bin/snapcap/keys/scsetup.pem');
-DEFINE('SC_SETUP_PUB_KEY','/home/lain/bin/snapcap/keys/scsetup.pub');
+$renv='PRD';
+if(isset($_SERVER['SCENV']))
+    $renv=$_SERVER['SCENV'];
+if($renv==='DEV')
+{
+    DEFINE('SC_SETUP_KEY','/home/scott/.ssh/scsetup.pem');
+    DEFINE('SC_SETUP_PUB_KEY','/home/scott/.ssh/scsetup.pub');
+}
+else 
+{
+    DEFINE('SC_SETUP_KEY','/home/lain/bin/snapcap/keys/scsetup.pem');
+    DEFINE('SC_SETUP_PUB_KEY','/home/lain/bin/snapcap/keys/scsetup.pub');
+}
+
 DEFINE('SC_SEVERITY_ERR',2);
 DEFINE('SC_SEVERITY_WRN',1);
 
@@ -140,7 +152,7 @@ class ClaSnapClient
         {
             
             $pchunk='';
-            if(!openssl_private_decrypt(base64_decode($chunk),$pchunk,$ekey))
+            if(!openssl_private_decrypt(base64_decode($chunk),$pchunk,$ekey,  OPENSSL_PKCS1_OAEP_PADDING))
                 throw new Exception('I could not decrypt one of the server chunks.',SC_SEVERITY_ERR);
                 $rstr.=$pchunk;
         }
@@ -148,7 +160,7 @@ class ClaSnapClient
         
     }
     // have to encrypt in chunks
-    // assumes a 4096 bit key
+    // assumes a 4096 bit key (for RSA)
     // so can encrypt in 4096/8-11 = 501 byte chunks.  will use blocks of 400 bytes.
     // output will be a base64 encoded string of base64 encoded chunks separated by ','
     private function encryptString($pstr)
@@ -162,7 +174,7 @@ class ClaSnapClient
             $echunk='';
             if(!openssl_private_encrypt($chunk,$echunk,$ekey))
                 throw new Exception("I could not encrypt a chunk of your string",SC_SEVERITY_ERR);
-                $echunks[]=base64_encode($echunk);
+            $echunks[]=base64_encode($echunk);
         }
         $estring=implode($echunks,',');
         return base64_encode($estring);
@@ -261,6 +273,42 @@ class ClaSnapClient
             throw new Exception($exitWarn,SC_SEVERITY_WRN);
          
     }
+    public function readURLIntoFile($url,$lfilespec)
+    {
+        $rcon=true;
+        $lfh=fopen($lfilespec,"wb");
+        if($lfh===false)
+            throw new Exception("I cannot open file $lfilespec for writing",SC_SEVERITY_ERR);
+        $ch=curl_init($url);
+        if($ch===false)
+        {
+            fclose($lfh);
+            throw new Exception('Error initializing cURL',SC_SEVERITY_ERR);
+        }
+        $opts=array
+        (
+            CURLOPT_POST=>false,
+            CURLOPT_USERAGENT=>'snapclient',
+            CURLOPT_FOLLOWLOCATION => true,     // follow redirects
+            CURLOPT_SSL_VERIFYHOST => false,        // don't verify certs and stuff.
+            CURLOPT_SSL_VERIFYPEER => false,    // ditto
+            CURLOPT_TIMEOUT=>300,  
+            CURLOPT_COOKIEFILE=>$this->cookiejar,
+            CURLOPT_COOKIEJAR=>$this->cookiejar,
+        );    
+        
+        $opts[CURLOPT_FILE]=$lfh;
+            
+        curl_setopt_array($ch,$opts);
+        
+        $rcon=curl_exec($ch); 
+        $this->lastExecMsg=curl_error($ch);
+            
+        curl_close($ch);
+        fclose($lfh);
+
+        return $rcon;
+    }
     public function BFL($keybase,$host,$snappath,$lfilespec)
     {
         echo "CIIII: BFL args:\n";
@@ -307,11 +355,22 @@ class ClaSnapClient
         {
             $chksum=$rdata;
             echo "CIIII: The server's checksum is $chksum \n";
-            $res=$this->execCommand('SND',$url,$args,false,$lfilespec,300); //TODO: don't hardcode the timeout
+            $args=array('sc_sndmode'=>'download');
+            $res=$this->execCommand('SND',$url,$args,false,null/*$lfilespec*/,300); //TODO: don't hardcode the timeout
             if($res===false)
                 throw new Exception("SND failed: $this->lastExecMsg \n",SC_SEVERITY_ERR);
             else 
             {
+                echo "CIIII: Extracting URL from server response...\n";
+                $this->processResponse($res,$rcmd,$rdata);
+                if($rcmd=='ERR')
+                    throw new Exception("Server failed to reply with a download URL during file backup: $rdata \n",SC_SEVERITY_ERR);
+                
+                $bflurl=$rdata;
+                echo "CIIII: backup file URL is: $bflurl \n";
+                
+                if(!$this->readURLIntoFile($bflurl, $lfilespec))
+                    throw new Exception("Error downloading file\n",SC_SEVERITY_ERR);
                 echo "CIIII: File backup data received.  Verifying checksum.\n";
                 $mysum=md5_file($lfilespec);
                 echo "CIIII: My checksum is $mysum \n";
@@ -381,11 +440,22 @@ class ClaSnapClient
         {
             $chksum=$rdata;
             echo "CIIII: The server's checksum is $chksum \n";
-            $res=$this->execCommand('SND',$url,$args,false,$lfilespec,300); //TODO: don't hardcode the timeout
+            $args=array('sc_sndmode'=>'download');
+            $res=$this->execCommand('SND',$url,$args,false,null/*$lfilespec*/,300); //TODO: don't hardcode the timeout
             if($res===false)
                 throw new Exception("SND failed: $this->lastExecMsg \n",SC_SEVERITY_ERR);
             else 
             {
+                echo "CIIII: Extracting URL from server response...\n";
+                $this->processResponse($res,$rcmd,$rdata);
+                if($rcmd=='ERR')
+                    throw new Exception("Server failed to reply with a download URL during database backup: $rdata \n",SC_SEVERITY_ERR);
+                
+                $bflurl=$rdata;
+                echo "CIIII: backup file URL is: $bflurl \n";
+                
+                if(!$this->readURLIntoFile($bflurl, $lfilespec))
+                    throw new Exception("Error downloading file\n",SC_SEVERITY_ERR);
                 echo "CIIII: DB backup data received.  Verifying checksum.\n";
                 $mysum=md5_file($lfilespec);
                 echo "CIIII: My checksum is $mysum \n";

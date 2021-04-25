@@ -126,7 +126,8 @@ class ClaSnapServer
   }
 
   // have to encrypt in chunks
-  // assumes a 4096 bit key
+  // assumes a 4096 bit key (for RSA)
+  // 
   // so can encrypt in 4096/8-11 = 501 byte chunks.  will use blocks of 400 bytes.
   // output will be a base64 encoded string of base64 encoded chunks separated by ','
   private function encryptString($pstr,$ekey)
@@ -138,7 +139,7 @@ class ClaSnapServer
       foreach($pchunks as $chunk)
       {
           $echunk='';
-          if(!openssl_public_encrypt($chunk,$echunk,$ekey))
+          if(!openssl_public_encrypt($chunk,$echunk,$ekey,  OPENSSL_PKCS1_OAEP_PADDING))
           {
               header("HTTP/1.0 500 ES failed");
               throw new Exception("Error encountered while encrypting a fragment of your data");
@@ -294,7 +295,7 @@ class ClaSnapServer
       $this->setSession();
   }
     
-  public function remoteSetup()
+  public function SUP()
   {
       // setupMode was set in the constructor.
       if(!$this->setupMode)
@@ -304,7 +305,7 @@ class ClaSnapServer
       }
       if(!file_exists(SC_TEMP_DIR))
       {
-          if(mkdir(SC_TEMP_DIR,0770)===false)
+          if(mkdir(SC_TEMP_DIR,0755)===false)
           {
               header("HTTP/1.0 500 Could not create temp dir");
               throw new Exception("I could not create SC's temp dir during SUP");
@@ -358,12 +359,25 @@ class ClaSnapServer
          $this->emitResponse('ERR',"There is no file send operation pending.");
          return;
      }
+     $dosend=true;
+     if(isset($this->postVars['args'][0]))
+        $dosend=strtolower(trim($this->postVars['args'][0]))!=='download';
+     
      // all the pre-condition checks are done, so now I'll set a long time limit, since I have
      // no idea in some cases how short it is on some servers.
      @set_time_limit(SC_LONG_TIME);  // I don't really care very much if this call fails.
      
      $finfo=$_SESSION[$this->scsid]['tempfile'];
-     $this->emitFile($finfo['name'],$finfo['spec']);  // does a die()
+     if($dosend)
+        $this->emitFile($finfo['name'],$finfo['spec']);  // does a die()
+     else 
+     {
+         // dirname() is dumb, but I think it'll work OK since I control the directory/URL structure for the most part.
+         // actually the whole line is dumb. :P
+         $furl=$_SERVER['REQUEST_SCHEME'] . '://' . $_SERVER['SERVER_NAME'] . dirname($_SERVER['SCRIPT_NAME']) . '/sctmp/' . $finfo['name'];
+         $this->emitResponse('SND',$furl);
+         return;
+     }
    
   }
   // TODO: at least the plain text temp file should be under SnapCap's directory, I think. I can't use tmpfile(), because I 
@@ -511,6 +525,14 @@ class ClaSnapServer
   public function emitFile($fname,$fspec)
   {
     $fsize=filesize($fspec);
+    $fh=fopen($fspec,"rb");
+    if($fh===false)
+    {
+         $this->emitResponse('ERR',"There is no file send operation pending.");
+         return;
+        
+    }
+    
     @ob_end_clean();
     
     header('Content-Type: application/octet-stream');
@@ -520,7 +542,17 @@ class ClaSnapServer
     
     header('Content-Length: ' . $fsize);
     
-    readfile($fspec);  //If this fails, then the checksum verification at the client side will fail, so we're OK just cutting loose here.
+    //If any of the rest fails, then the checksum verification at the client side will fail, so we're OK just cutting loose here.
+    // Can't use readfile() on severely RAM-scarce hosts due to the fact that 
+    // PHP buffers the output, and so will hit memory limits for "large" backups.
+    //readfile($fspec);  
+
+    while(!feof($fh))
+    {
+        $c=fread($fh,1024);
+        echo $c;
+    }
+    fclose($fh);
     die();
     
   }
@@ -559,7 +591,7 @@ class ClaSnapServer
               $this->SND();
               break;
           case 'SUP':
-              $this->remoteSetup();
+              $this->SUP();
               break;
           default:
               header("HTTP/1.0 403 Invalid command string");

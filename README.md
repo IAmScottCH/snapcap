@@ -29,8 +29,8 @@ BDB <SID> <mode> [more args]: backup the database.  <mode> is how to go about it
 	BDB <checksum>: checksum is the MD5 checksum of the encrypted DB dump.
 BFL <SID> <mode> [more args]: backup the files.  <mode> is how to go about it.  [more args] is other possible arguments, depending on mode.  The only mode currently supported is "wordpress".   In wordpress mode, no other arguments are needed: the SnapCap server assumes it should backup all files in and under the standard directory location for wp-config.php.
 	BFL <checksum>: checksum is the MD5 checksum of the encrypted tar-gzip file archived.
-SND <SID>: send the last backup file generated.  This must follow either a BDB or a BFL in the same session. 
-    The server responds by dumping the encrypted backup data file down to the client.  After the data is received, the client is expected to generate its own MD5 sum of the downloaded data and compare it to the one previously returned by the server in response to the BDB or BFL commands.  Thus, even if the server fails to successfully complete the dump back the client, the client will detect it via a checksum mismatch.
+SND <SID> [mode]: send the last backup file generated.  This must follow either a BDB or a BFL in the same session. 
+    The server responds by dumping the encrypted backup data file down to the client.  After the data is received, the client is expected to generate its own MD5 sum of the downloaded data and compare it to the one previously returned by the server in response to the BDB or BFL commands.  Thus, even if the server fails to successfully complete the dump back the client, the client will detect it via a checksum mismatch.  [mode] is an optional parameter, and if set to "download" (without the quotes) the server will send back a URL for the file it would send rather than sending it.  Use this in cases where the host has low RAM resources to prevent out-of-memory due to readfile()'s buffering.
 BYE <SID>: close the session.
 	BYE <SID>: The server "forgets" the session, so the SID may not be used for any more commands.
 ```
