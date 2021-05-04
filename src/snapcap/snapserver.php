@@ -39,6 +39,8 @@ class ClaSnapServer
   private $scsid;
   //private $sessionData;
   private $setupMode;
+  private $currentSymKey;
+  private $currentIV;
   const BLKSIZE=400;
   // assumes argstring is encrypted and then base64-encoded
   private function decryptArgument($argstring)
@@ -149,12 +151,100 @@ class ClaSnapServer
       $estring=implode($echunks,',');
       return base64_encode($estring);
   }
+  // symmetric key encryption for file.
+  private function encryptFileSymmetric($srcfile,$tarfile,$ekey,$iv)
+  {
+      $BLKSIZE=ClaSnapServer::BLKSIZE;
+      
+      $fsh=fopen($srcfile,"rb");
+      if($fsh===false)
+      {
+          header("HTTP/1.0 500 Source file unreadable");
+          throw new Exception("Source file could not be opened for encryption");
+      }
+      $fth=fopen($tarfile,"wb");
+      if($fth===false)
+      {
+          fclose($fsh);
+          header("HTTP/1.0 500 Target file unwritable");
+          throw new Exception("Target file could not be opened for receiving encrypted data");
+      }
+      
+      $fw=true;
+      while(!feof($fsh))
+      {
+        $pstr=fread($fsh,$BLKSIZE);
+        if($pstr===false)
+        {
+            fclose($fsh);
+            fclose($fth);
+            header("HTTP/1.0 500 Source file read error");
+            throw new Exception("Data for encryption could not be read");
+        }
+        try 
+        {
+            $estr=$this->encryptStringSymmetric($pstr, $ekey, $iv);
+            
+        } catch (Exception $e) 
+        {
+            fclose($fsh);
+            fclose($fth);
+            throw $e;
+        }
+        if(!$fw)
+        {
+            if(fwrite($fth,',')===false)
+            {
+                fclose($fsh);
+                fclose($fth);
+                header("HTTP/1.0 500 Target file delimiter write error");
+                throw new Exception("Separator could not written while encrypting the file");
+            }
+        }
+        if(fwrite($fth,$estr)===false)
+        {
+            fclose($fsh);
+            fclose($fth);
+            header("HTTP/1.0 500 Target file write error");
+            throw new Exception("Encrypted data could not be written");
+        }
+        $fw=false;
+      }
+      
+         
+      
+      fclose($fsh);
+      fclose($fth);
+  }
+
+  //use a symmetric key. 
+  private function encryptStringSymmetric($pstr,$ekey,$iv)
+  {
+      $BLKSIZE=ClaSnapServer::BLKSIZE;
+      
+      $pchunks=str_split($pstr,$BLKSIZE);
+      $echunks=array();
+      foreach($pchunks as $chunk)
+      {
+          $echunk=openssl_encrypt($chunk,'AES-128-CBC',$ekey,OPENSSL_RAW_DATA,$iv);
+          if($echunk===false)
+          {
+              header("HTTP/1.0 500 ES failed");
+              throw new Exception("Error encountered while encrypting a fragment of your data");
+          }
+          $echunks[]=base64_encode($echunk);
+      }
+      $estring=implode($echunks,',');
+      return base64_encode($estring);
+  }  
   public function __construct()
   {
      //after setup, I will empty the SC_SUP_KEY_FILE file such that a remote client can't
      //      do setup again.  But, I will leave the file there so I have something to read,
      //      even if it is empty.  I don't know why.  Whatever.
      $this->setupMode=true;
+     $this->currentIV=null;
+     $this->currentSymKey=null;
      $this->setupPubKey=file_get_contents(SC_SUP_KEY_FILE);
      if($this->setupPubKey===false)
      {
@@ -416,7 +506,8 @@ class ClaSnapServer
         return;
     }
     
-    $this->encryptFile($dbplainspec,$dbtempspec,$this->appPubKey);
+    //$this->encryptFile($dbplainspec,$dbtempspec,$this->appPubKey);
+    $this->encryptFileSymmetric($dbplainspec,$dbtempspec,$this->currentSymKey,$this->currentIV);
     unlink($dbplainspec);
     $_SESSION[$this->scsid]['tempfile']=array("name"=>$dbtempname,"spec"=>$dbtempspec);
     
@@ -472,7 +563,8 @@ class ClaSnapServer
         return;
     }
     
-    $this->encryptFile($filplainspec,$filtempspec,$this->appPubKey);
+    //$this->encryptFile($filplainspec,$filtempspec,$this->appPubKey);
+    $this->encryptFileSymmetric($filplainspec,$filtempspec,$this->currentSymKey,$this->currentIV);
     unlink($filplainspec);
     $_SESSION[$this->scsid]['tempfile']=array("name"=>$filtempname,"spec"=>$filtempspec);
     
@@ -487,6 +579,14 @@ class ClaSnapServer
       if(!isset($this->postVars['args'][0]))
           throw new Exception("Client did not supply an mode for the BDB command");
       $this->postVars['sc_mode']=$this->postVars['args'][0];
+      if(!isset($this->postVars['args'][1]))
+          throw new Exception("Client did not supply a symmetric key for the BFL command");
+      $this->postVars['sc_symkey']=$this->postVars['args'][1];
+      if(!isset($this->postVars['args'][2]))
+          throw new Exception("Client did not supply an init vec for the BFL command");
+      $this->postVars['sc_iv']=$this->postVars['args'][2];
+      $this->currentSymKey=$this->postVars['sc_symkey'];
+      $this->currentIV=$this->postVars['sc_iv'];
       // Several possible modes.  The args will say which:
       // mode=>wordpress implies snapserver was installed as a plugin and should verify wp-config.php is
       // where it things it ought to be, and then backup from there down.
@@ -507,6 +607,15 @@ class ClaSnapServer
       if(!isset($this->postVars['args'][0]))
           throw new Exception("Client did not supply an mode for the BDB command");
       $this->postVars['sc_mode']=$this->postVars['args'][0];
+      if(!isset($this->postVars['args'][1]))
+          throw new Exception("Client did not supply a symmetric key for the BDB command");
+      $this->postVars['sc_symkey']=$this->postVars['args'][1];
+      if(!isset($this->postVars['args'][2]))
+          throw new Exception("Client did not supply an init vec for the BDB command");
+      $this->postVars['sc_iv']=$this->postVars['args'][2];
+      $this->currentSymKey=$this->postVars['sc_symkey'];
+      $this->currentIV=$this->postVars['sc_iv'];
+      
       // Several possible modes.  The args will say which:
       // mode=>wordpress implies snapserver was installed as a plugin and should find wp-config.php
       // mode=m**** implies maria or mysql, and more arguments: dbname,dbuser,dbpass,dbhost,dbport

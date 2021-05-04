@@ -61,6 +61,8 @@ class ClaSnapClient
     const BLKSIZE=400;
     private $lastExecMsg;
     private $cookiejar;
+    private $currentSaltKey;
+    private $currentIV;
     
     public function __construct()
     {
@@ -72,6 +74,8 @@ class ClaSnapClient
         $this->lastExecMsg='';
         $this->hostKeyBase='';
         $this->currentCookies=null;
+        $this->currentSaltKey=null;
+        $this->currentIV=null;
         $this->cookiejar=__DIR__ . DIRECTORY_SEPARATOR . "snapcap_cookiejar.txt";
        
         $this->scsetupkey=openssl_pkey_get_private('file://' . SC_SETUP_KEY);
@@ -159,6 +163,88 @@ class ClaSnapClient
         return $rstr;
         
     }
+    private function decryptFileSymmetric($efile,$pfile,$kfile)
+    {
+      $keys=file_get_contents($kfile);
+      $kparts=explode("\n",$keys);
+      $this->currentSaltKey=base64_decode($kparts[0]);
+      $this->currentIV=base64_decode($kparts[1]);
+      
+      $fsize=filesize($efile);
+      $fsh=fopen($efile,"rb");
+      if($fsh===false)
+          throw new Exception("Could not open source file for decryption",SC_SEVERITY_ERR);
+      $fth=fopen($pfile,"wb");
+      if($fth===false)
+      {
+          fclose($fsh);
+          throw new Exception("Could not open target file for decryption",SC_SEVERITY_ERR);
+      }
+      
+      $fw=true;
+      $fsize=filesize($efile);
+      while(!feof($fsh))
+      {
+        $pstr='';
+        $estr=stream_get_line($fsh,$fsize,',');  // does not return delimiter itself
+        if($estr===false)
+        {
+            fclose($fsh);
+            fclose($fth);
+            throw new Exception("Error decrypting file during read",SC_SEVERITY_ERR);
+        }
+        try 
+        {
+            $pstr=$this->decryptStringSymmetric($estr,$this->currentSaltKey,$this->currentIV);
+            
+        } catch (Exception $e) 
+        {
+            fclose($fsh);
+            fclose($fth);
+            throw $e;
+        }
+        if(!$fw)
+        {
+            if(fwrite($fth,',')===false)
+            {
+                fclose($fsh);
+                fclose($fth);
+                throw new Exception("Error decrypting file while writing separator",SC_SEVERITY_ERR);
+            }
+            $fw=false;
+        }
+        if(fwrite($fth,$pstr)===false)
+        {
+            fclose($fsh);
+            fclose($fth);
+            throw new Exception("Error decrypting file during write",SC_SEVERITY_ERR);
+        }
+      }
+      
+         
+      
+      fclose($fsh);
+      fclose($fth);        
+    }
+    // decrypt $argstring with the imported key $ekey
+    // see encryptString for the way the message is structured in chunks and encoded.
+    private function decryptStringSymmetric($argstring,$ekey,$iv)
+    {
+        //$ekey=($this->setupMode?$this->scsetupkey:$this->hostkey);
+        $estr=base64_decode($argstring);
+        $echunks=explode(',',$estr);
+        $rstr='';
+        foreach($echunks as $chunk)
+        {
+            
+            $pchunk=openssl_decrypt(base64_decode($chunk),'AES-128-CBC',$ekey,OPENSSL_RAW_DATA,$iv);
+            if($pchunk===false)
+                throw new Exception('I could not decrypt one of the server chunks.',SC_SEVERITY_ERR);
+            $rstr.=$pchunk;
+        }
+        return $rstr;
+        
+    }    
     // have to encrypt in chunks
     // assumes a 4096 bit key (for RSA)
     // so can encrypt in 4096/8-11 = 501 byte chunks.  will use blocks of 400 bytes.
@@ -311,11 +397,13 @@ class ClaSnapClient
     }
     public function BFL($keybase,$host,$snappath,$lfilespec)
     {
+        $lkeyfilespec=$lfilespec . ".keyring";
         echo "CIIII: BFL args:\n";
         echo "C-III:   keybase: $keybase \n";
         echo "C-III:      host: $host \n";
         echo "C-III:  snappath: $snappath \n";
         echo "C-III: lfilespec: $lfilespec \n";
+        echo "C-III: lkeyfilespec: $lkeyfilespec \n";
         $rcmd='';
         $rdata='';
         $chksum='';
@@ -341,9 +429,15 @@ class ClaSnapClient
         echo "CIIII: Sending HLO\n";
         $this->HLO($host,$snappath);
         
+        // Generate key and an iv.
+        $this->currentSaltKey=openssl_random_pseudo_bytes(128);
+        $this->currentIV=openssl_random_pseudo_bytes(openssl_cipher_iv_length('AES-128-CBC'));
+        $keys=base64_encode($this->currentSaltKey) . "\n" . base64_encode($this->currentIV);
+        file_put_contents($lkeyfilespec,$keys);
         //TODO: support more modes than just wordpress, and take the mode on the command line or something
         echo "CIIII: Sending BFL\n";
-        $args=array('sc_mode'=>'wordpress');
+        $args=array('sc_mode'=>'wordpress','sc_symkey'=>$this->currentSaltKey,'sc_iv'=>$this->currentIV);
+       
         
         // First tell the server to create the backup
         $res=$this->execCommand('BFL',$url,$args,false,null,300); //TODO: don't hardcode the timeout
@@ -356,6 +450,7 @@ class ClaSnapClient
             $chksum=$rdata;
             echo "CIIII: The server's checksum is $chksum \n";
             $args=array('sc_sndmode'=>'download');
+            // now tell the server to provide the URL of the backup.
             $res=$this->execCommand('SND',$url,$args,false,null/*$lfilespec*/,300); //TODO: don't hardcode the timeout
             if($res===false)
                 throw new Exception("SND failed: $this->lastExecMsg \n",SC_SEVERITY_ERR);
@@ -369,6 +464,7 @@ class ClaSnapClient
                 $bflurl=$rdata;
                 echo "CIIII: backup file URL is: $bflurl \n";
                 
+                // get the file from the server.
                 if(!$this->readURLIntoFile($bflurl, $lfilespec))
                     throw new Exception("Error downloading file\n",SC_SEVERITY_ERR);
                 echo "CIIII: File backup data received.  Verifying checksum.\n";
@@ -393,11 +489,13 @@ class ClaSnapClient
     
     public function BDB($keybase,$host,$snappath,$lfilespec)
     {
+        $lkeyfilespec=$lfilespec . ".keyring";
         echo "CIIII: BDB args:\n";
         echo "C-III:   keybase: $keybase \n";
         echo "C-III:      host: $host \n";
         echo "C-III:  snappath: $snappath \n";
         echo "C-III: lfilespec: $lfilespec \n";
+        echo "C-III: lkeyfilespec: $lkeyfilespec \n";
         $rcmd='';
         $rdata='';
         $chksum='';
@@ -424,9 +522,13 @@ class ClaSnapClient
         echo "CIIII: Sending HLO\n";
         $this->HLO($host,$snappath);
         
+        $this->currentSaltKey=openssl_random_pseudo_bytes(128);
+        $this->currentIV=openssl_random_pseudo_bytes(openssl_cipher_iv_length('AES-128-CBC'));
+        $keys=base64_encode($this->currentSaltKey) . "\n" . base64_encode($this->currentIV);
+        file_put_contents($lkeyfilespec,$keys);
         //TODO: support more modes than just wordpress, and take the mode on the command line or something
         echo "CIIII: Sending BDB\n";
-        $args=array('sc_mode'=>'wordpress');
+        $args=array('sc_mode'=>'wordpress','sc_symkey'=>$this->currentSaltKey,'sc_iv'=>$this->currentIV);
         
         // First tell the server to create the backup
         $res=$this->execCommand('BDB',$url,$args,false,null,300); //TODO: don't hardcode the timeout
@@ -474,7 +576,22 @@ class ClaSnapClient
            throw new Exception("BYE SC SID from server seems wrong\n",SC_SEVERITY_WRN);
         
      }
-
+     public function decryptLocalFileSymmetric($encfile, $plnfile, $keyfile)
+     {
+        $this->setupMode=false;
+       // $this->hostKeyBase=$keybase;
+       // $appkeyfile=$keybase . '.pem';
+       // $this->hostkey=openssl_pkey_get_private('file://' . $appkeyfile);
+       // if($this->hostkey===false)
+       //     throw new Exception('I could not parse the application key.',SC_SEVERITY_ERR);
+ 
+        // this will potentially take a long time, so:
+        if(set_time_limit(0)===false)
+            echo "CWWWW: WARNING: I could not set an infinite time limit for the script execution\n";
+        echo "CIIII: Decrypting $encfile to $plnfile \n";
+        $this->decryptFileSymmetric($encfile,$plnfile, $keyfile);
+               
+     }
      public function decryptLocalFile($encfile, $plnfile, $keybase)
      {
         $this->setupMode=false;
@@ -608,7 +725,8 @@ if(defined('STDIN'))
             $keybase=$argv[2];
             $encfile=$argv[3];
             $plnfile=$argv[4];
-            $sci->decryptLocalFile($encfile,$plnfile,$keybase);
+            $kfile=$encfile . ".keyring";
+            $sci->decryptLocalFileSymmetric($encfile,$plnfile,$kfile);
             break;
             
         default:
