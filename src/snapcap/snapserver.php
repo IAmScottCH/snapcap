@@ -37,6 +37,7 @@ class ClaSnapServer
   private $currentCommand;
   private $postVars;
   private $scsid;
+  private $noEncryptBackupFiles;
   //private $sessionData;
   private $setupMode;
   private $currentSymKey;
@@ -245,6 +246,7 @@ class ClaSnapServer
      $this->setupMode=true;
      $this->currentIV=null;
      $this->currentSymKey=null;
+     $this->noEncryptBackupFiles=false;
      $this->setupPubKey=file_get_contents(SC_SUP_KEY_FILE);
      if($this->setupPubKey===false)
      {
@@ -491,7 +493,8 @@ class ClaSnapServer
     //  exit code is 0 on success.
     $dbtempname= 'sc_' . bin2hex(random_bytes(6));
     $dbtempspec=SC_TEMP_DIR . '/' . $dbtempname;
-    $dbplainspec=SC_TEMP_DIR . '/sc_' . bin2hex(random_bytes(6));
+    $dbplainname='sc_' . bin2hex(random_bytes(6));
+    $dbplainspec=SC_TEMP_DIR . '/' . $dbplainname;
     $cmd="mysqldump -a -n --single-transaction --no-autocommit -u'" . DB_USER . "' -p'" . DB_PASSWORD . "' -h'" . DB_HOST . "' '" . DB_NAME . "' > $dbplainspec" ;          
     $cmdout='';
     $cmdec=1;
@@ -506,13 +509,23 @@ class ClaSnapServer
         return;
     }
     
-    //$this->encryptFile($dbplainspec,$dbtempspec,$this->appPubKey);
-    $this->encryptFileSymmetric($dbplainspec,$dbtempspec,$this->currentSymKey,$this->currentIV);
-    unlink($dbplainspec);
+    if($this->noEncryptBackupFiles)
+    {
+        //$this->encryptFile($dbplainspec,$dbtempspec,$this->appPubKey);
+        $this->encryptFileSymmetric($dbplainspec,$dbtempspec,$this->currentSymKey,$this->currentIV);
+        unlink($dbplainspec);
+    }
+    else 
+    {
+        $dbtempname=$dbplainname;
+        $dbtempspec=$dbplainspec;
+    }
+ 
     $_SESSION[$this->scsid]['tempfile']=array("name"=>$dbtempname,"spec"=>$dbtempspec);
     
     $chksum=md5_file($dbtempspec);
     $this->emitResponse('BDB',$chksum);
+    
 
     
     
@@ -547,7 +560,8 @@ class ClaSnapServer
     //  exit code of tar is 0 on success.
     $filtempname= 'sc_' . bin2hex(random_bytes(6));
     $filtempspec=SC_TEMP_DIR . '/' . $filtempname;
-    $filplainspec=SC_TEMP_DIR . '/sc_' . bin2hex(random_bytes(6));
+    $filplainname='sc_' . bin2hex(random_bytes(6));
+    $filplainspec=SC_TEMP_DIR . $filplainname;
     
     $cmd="tar --exclude='wp-content/plugins/snapcap' -czf '$filplainspec' .";          
     $cmdout='';
@@ -562,10 +576,18 @@ class ClaSnapServer
         $this->emitResponse('ERR',"Archiving failed with these message: " . implode("\n",$cmdout));
         return;
     }
-    
-    //$this->encryptFile($filplainspec,$filtempspec,$this->appPubKey);
-    $this->encryptFileSymmetric($filplainspec,$filtempspec,$this->currentSymKey,$this->currentIV);
-    unlink($filplainspec);
+    if($this->noEncryptBackupFiles)
+    {
+        //$this->encryptFile($dbplainspec,$dbtempspec,$this->appPubKey);
+        $this->encryptFileSymmetric($filplainspec,$filtempspec,$this->currentSymKey,$this->currentIV);
+        unlink($filplainspec);
+    }
+    else
+    {
+        $filtempname=$filplainname;
+        $filtempspec=$filplainspec;
+    }
+
     $_SESSION[$this->scsid]['tempfile']=array("name"=>$filtempname,"spec"=>$filtempspec);
     
     $chksum=md5_file($filtempspec);
@@ -587,6 +609,16 @@ class ClaSnapServer
       $this->postVars['sc_iv']=$this->postVars['args'][2];
       $this->currentSymKey=$this->postVars['sc_symkey'];
       $this->currentIV=$this->postVars['sc_iv'];
+      if(isset($this->postVars['args'][3]))
+      {
+          $this->postVars['sc_noenc']=strtolower($this->postVars['args'][3]);
+          if($this->postVars['sc_noenc']==='encrypt')
+              $this->noEncryptBackupFiles=false;
+          else if($this->postVars['sc_noenc']==='noencrypt')
+              $this->noEncryptBackupFiles=true;
+          else
+              throw new Exception("Client provided an invalid value for the encrypt option.  Client said: $this->postVars['sc_noenc']");
+      }
       // Several possible modes.  The args will say which:
       // mode=>wordpress implies snapserver was installed as a plugin and should verify wp-config.php is
       // where it things it ought to be, and then backup from there down.
@@ -615,7 +647,17 @@ class ClaSnapServer
       $this->postVars['sc_iv']=$this->postVars['args'][2];
       $this->currentSymKey=$this->postVars['sc_symkey'];
       $this->currentIV=$this->postVars['sc_iv'];
-      
+      if(isset($this->postVars['args'][3]))
+      {
+          $this->postVars['sc_noenc']=strtolower($this->postVars['args'][3]);
+          if($this->postVars['sc_noenc']==='encrypt')
+              $this->noEncryptBackupFiles=false;
+          else if($this->postVars['sc_noenc']==='noencrypt')
+              $this->noEncryptBackupFiles=true;
+          else 
+              throw new Exception("Client provided an invalid value for the encrypt option.  Client said: $this->postVars['sc_noenc']");
+      }
+          
       // Several possible modes.  The args will say which:
       // mode=>wordpress implies snapserver was installed as a plugin and should find wp-config.php
       // mode=m**** implies maria or mysql, and more arguments: dbname,dbuser,dbpass,dbhost,dbport
