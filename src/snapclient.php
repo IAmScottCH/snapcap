@@ -436,7 +436,7 @@ class ClaSnapClient
         file_put_contents($lkeyfilespec,$keys);
         //TODO: support more modes than just wordpress, and take the mode on the command line or something
         echo "CIIII: Sending BFL\n";
-        $args=array('sc_mode'=>'wordpress','sc_symkey'=>$this->currentSaltKey,'sc_iv'=>$this->currentIV);
+        $args=array('sc_mode'=>'wordpress','sc_symkey'=>$this->currentSaltKey,'sc_iv'=>$this->currentIV,'sc_noenc'=>'noencrypt');
        
         
         // First tell the server to create the backup
@@ -528,7 +528,7 @@ class ClaSnapClient
         file_put_contents($lkeyfilespec,$keys);
         //TODO: support more modes than just wordpress, and take the mode on the command line or something
         echo "CIIII: Sending BDB\n";
-        $args=array('sc_mode'=>'wordpress','sc_symkey'=>$this->currentSaltKey,'sc_iv'=>$this->currentIV);
+        $args=array('sc_mode'=>'wordpress','sc_symkey'=>$this->currentSaltKey,'sc_iv'=>$this->currentIV,'sc_noenc'=>'noencrypt');
         
         // First tell the server to create the backup
         $res=$this->execCommand('BDB',$url,$args,false,null,300); //TODO: don't hardcode the timeout

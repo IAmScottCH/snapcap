@@ -509,7 +509,7 @@ class ClaSnapServer
         return;
     }
     
-    if($this->noEncryptBackupFiles)
+    if(!$this->noEncryptBackupFiles)
     {
         //$this->encryptFile($dbplainspec,$dbtempspec,$this->appPubKey);
         $this->encryptFileSymmetric($dbplainspec,$dbtempspec,$this->currentSymKey,$this->currentIV);
@@ -561,7 +561,7 @@ class ClaSnapServer
     $filtempname= 'sc_' . bin2hex(random_bytes(6));
     $filtempspec=SC_TEMP_DIR . '/' . $filtempname;
     $filplainname='sc_' . bin2hex(random_bytes(6));
-    $filplainspec=SC_TEMP_DIR . $filplainname;
+    $filplainspec=SC_TEMP_DIR . '/' . $filplainname;
     
     $cmd="tar --exclude='wp-content/plugins/snapcap' -czf '$filplainspec' .";          
     $cmdout='';
@@ -576,7 +576,7 @@ class ClaSnapServer
         $this->emitResponse('ERR',"Archiving failed with these message: " . implode("\n",$cmdout));
         return;
     }
-    if($this->noEncryptBackupFiles)
+    if(!$this->noEncryptBackupFiles)
     {
         //$this->encryptFile($dbplainspec,$dbtempspec,$this->appPubKey);
         $this->encryptFileSymmetric($filplainspec,$filtempspec,$this->currentSymKey,$this->currentIV);
