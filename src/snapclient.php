@@ -165,6 +165,7 @@ class ClaSnapClient
     }
     private function decryptFileSymmetric($efile,$pfile,$kfile)
     {
+        
       $keys=file_get_contents($kfile);
       $kparts=explode("\n",$keys);
       $this->currentSaltKey=base64_decode($kparts[0]);
@@ -245,6 +246,91 @@ class ClaSnapClient
         return $rstr;
         
     }    
+    private function encryptFileSymmetric($srcfile,$tarfile,$ekey,$iv)
+    {
+        $BLKSIZE=ClaSnapClient::BLKSIZE;
+        
+        $fsh=fopen($srcfile,"rb");
+        if($fsh===false)
+        {
+            header("HTTP/1.0 500 Source file unreadable");
+            throw new Exception("Source file could not be opened for encryption");
+        }
+        $fth=fopen($tarfile,"wb");
+        if($fth===false)
+        {
+            fclose($fsh);
+            header("HTTP/1.0 500 Target file unwritable");
+            throw new Exception("Target file could not be opened for receiving encrypted data");
+        }
+        
+        $fw=true;
+        while(!feof($fsh))
+        {
+            $pstr=fread($fsh,$BLKSIZE);
+            if($pstr===false)
+            {
+                fclose($fsh);
+                fclose($fth);
+                header("HTTP/1.0 500 Source file read error");
+                throw new Exception("Data for encryption could not be read");
+            }
+            try
+            {
+                $estr=$this->encryptStringSymmetric($pstr, $ekey, $iv);
+                
+            } catch (Exception $e)
+            {
+                fclose($fsh);
+                fclose($fth);
+                throw $e;
+            }
+            if(!$fw)
+            {
+                if(fwrite($fth,',')===false)
+                {
+                    fclose($fsh);
+                    fclose($fth);
+                    header("HTTP/1.0 500 Target file delimiter write error");
+                    throw new Exception("Separator could not written while encrypting the file");
+                }
+            }
+            if(fwrite($fth,$estr)===false)
+            {
+                fclose($fsh);
+                fclose($fth);
+                header("HTTP/1.0 500 Target file write error");
+                throw new Exception("Encrypted data could not be written");
+            }
+            $fw=false;
+        }
+        
+        
+        
+        fclose($fsh);
+        fclose($fth);
+    }
+    
+    //use a symmetric key.
+    private function encryptStringSymmetric($pstr,$ekey,$iv)
+    {
+        $BLKSIZE=ClaSnapClient::BLKSIZE;
+        
+        $pchunks=str_split($pstr,$BLKSIZE);
+        $echunks=array();
+        foreach($pchunks as $chunk)
+        {
+            $echunk=openssl_encrypt($chunk,'AES-128-CBC',$ekey,OPENSSL_RAW_DATA,$iv);
+            if($echunk===false)
+            {
+                header("HTTP/1.0 500 ES failed");
+                throw new Exception("Error encountered while encrypting a fragment of your data");
+            }
+            $echunks[]=base64_encode($echunk);
+        }
+        $estring=implode($echunks,',');
+        return base64_encode($estring);
+    }  
     // have to encrypt in chunks
     // assumes a 4096 bit key (for RSA)
     // so can encrypt in 4096/8-11 = 501 byte chunks.  will use blocks of 400 bytes.
@@ -484,6 +570,11 @@ class ClaSnapClient
         if($bsid!==$this->scsid)
             throw new Exception("BYE SC SID from server seems wrong\n",SC_SEVERITY_WRN);
         
+        $cfrfilespec=$lfilespec . '.cfr';
+        echo "CIIII: Encrypting file with symmetric key to $cfrfilespec.\n";
+        $this->encryptFileSymmetric($lfilespec, $cfrfilespec, $this->currentSaltKey, $this->currentIV);
+        echo "CIIII: Removing unencrypted file $lfilespec. \n";
+        unlink($lfilespec);
 
     }
     
@@ -574,6 +665,12 @@ class ClaSnapClient
         $bsid=$this->BYE($host,$snappath);
         if($bsid!==$this->scsid)
            throw new Exception("BYE SC SID from server seems wrong\n",SC_SEVERITY_WRN);
+        
+       $cfrfilespec=$lfilespec . '.cfr';
+       echo "CIIII: Encrypting file with symmetric key to $cfrfilespec.\n";
+       $this->encryptFileSymmetric($lfilespec, $cfrfilespec, $this->currentSaltKey, $this->currentIV);
+       echo "CIIII: Removing unencrypted file $lfilespec. \n";
+       unlink($lfilespec);
         
      }
      public function decryptLocalFileSymmetric($encfile, $plnfile, $keyfile)
@@ -725,7 +822,7 @@ if(defined('STDIN'))
             $keybase=$argv[2];
             $encfile=$argv[3];
             $plnfile=$argv[4];
-            $kfile=$encfile . ".keyring";
+            $kfile=substr($encfile,0,-4) . ".keyring";
             $sci->decryptLocalFileSymmetric($encfile,$plnfile,$kfile);
             break;
             
