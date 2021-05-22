@@ -1,7 +1,7 @@
 <?php 
 
 /*
- * SnapCap Version 2.0.0
+ * SnapCap Version 2.0.1
  * 
  * Application file and database backup utility.
  * SnapCap server PHP implementation.
