@@ -621,8 +621,8 @@ class ClaSnapServer
       }
       // Several possible modes.  The args will say which:
       // mode=>wordpress implies snapserver was installed as a plugin and should verify wp-config.php is
-      // where it things it ought to be, and then backup from there down.
-      // mode=m**** implies maria or mysql, and more arguments: dbname,dbuser,dbpass,dbhost,dbport
+      // where it thinks it ought to be, and then backup from there down.
+      // mode=path implies a path to the files to collect is provided as an additional argument
       switch($this->postVars['sc_mode'])
       {
           case 'wordpress':
