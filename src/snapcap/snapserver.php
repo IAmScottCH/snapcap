@@ -149,7 +149,7 @@ class ClaSnapServer
           }
           $echunks[]=base64_encode($echunk);
       }
-      $estring=implode($echunks,',');
+      $estring=implode(',',$echunks);
       return base64_encode($estring);
   }
   // symmetric key encryption for file.
@@ -235,7 +235,7 @@ class ClaSnapServer
           }
           $echunks[]=base64_encode($echunk);
       }
-      $estring=implode($echunks,',');
+      $estring=implode(',',$echunks);
       return base64_encode($estring);
   }  
   public function __construct()
